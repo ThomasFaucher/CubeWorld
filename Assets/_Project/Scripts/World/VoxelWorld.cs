@@ -32,10 +32,17 @@ namespace CubeWorld.World
         private readonly WorldConfig config;
         private readonly TerrainGenerator generator;
 
+        // Substitut pour un voisin non chargé : un job Burst ne peut pas recevoir
+        // un NativeArray par défaut (non construit), il faut un conteneur natif
+        // réellement alloué, même de longueur 0. ChunkMeshBuildJob le reconnaît
+        // via sa longueur (0) et traite alors ce voisin comme de l'air.
+        private readonly NativeArray<Voxel> emptyNeighbor;
+
         public VoxelWorld(WorldConfig config)
         {
             this.config = config;
             generator = new TerrainGenerator(config);
+            emptyNeighbor = new NativeArray<Voxel>(0, Allocator.Persistent);
         }
 
         public IReadOnlyCollection<Chunk> Chunks => chunks.Values;
@@ -75,10 +82,10 @@ namespace CubeWorld.World
             return combined;
         }
 
-        /// <summary>Voxels natifs du voisin direct dans cette direction, ou un tableau non créé s'il n'est pas chargé.</summary>
+        /// <summary>Voxels natifs du voisin direct dans cette direction, ou un tableau vide s'il n'est pas chargé.</summary>
         public NativeArray<Voxel> GetNeighborVoxels(int3 coord, int3 offset)
         {
-            return chunks.TryGetValue(coord + offset, out Chunk neighbor) ? neighbor.Voxels : default;
+            return chunks.TryGetValue(coord + offset, out Chunk neighbor) ? neighbor.Voxels : emptyNeighbor;
         }
 
         /// <summary>Enregistre le handle du job de meshing en cours pour ce chunk (voir <see cref="ChunkMeshBuilder"/>).</summary>
@@ -172,6 +179,11 @@ namespace CubeWorld.World
             }
 
             chunks.Clear();
+
+            if (emptyNeighbor.IsCreated)
+            {
+                emptyNeighbor.Dispose();
+            }
         }
 
         private static void CompleteHandle(Dictionary<int3, JobHandle> handles, int3 coord)

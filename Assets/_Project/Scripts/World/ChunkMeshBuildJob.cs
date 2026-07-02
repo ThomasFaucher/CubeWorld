@@ -12,7 +12,7 @@ namespace CubeWorld.World
     /// Chaque face a ses 4 sommets propres avec une normale de face — c'est ce
     /// qui donne le rendu flat shading. La couleur du voxel est écrite dans les
     /// couleurs de vertex. Les 6 voisins directs sont fournis à part : un voisin
-    /// non chargé (tableau non créé) est traité comme de l'air.
+    /// non chargé (tableau vide, longueur 0) est traité comme de l'air.
     /// Les faces d'eau sont émises dans un second jeu de buffers (mesh à part,
     /// rendu avec un matériau transparent) plutôt que dans le mesh opaque.
     /// </summary>
@@ -69,13 +69,26 @@ namespace CubeWorld.World
             {
                 int3 neighborLocal = local + GetFaceDirection(face);
 
-                // Une face n'est visible que contre de l'air : les faces entre
-                // deux voxels pleins (ou entre deux eaux) sont supprimées.
-                if (SampleVoxel(neighborLocal).IsAir)
+                if (IsFaceVisible(isWater, SampleVoxel(neighborLocal)))
                 {
                     AddFace(local, face, color, isWater);
                 }
             }
+        }
+
+        // Une face solide est visible contre de l'air ou contre de l'eau (elle
+        // doit se voir *à travers* l'eau translucide, ex. le fond d'un lac).
+        // Une face d'eau n'est visible que contre de l'air (sa surface) : entre
+        // deux voxels d'eau ou contre du solide, elle serait redondante avec la
+        // face déjà dessinée par ce voisin (ou invisible de toute façon).
+        private static bool IsFaceVisible(bool currentIsWater, Voxel neighbor)
+        {
+            if (neighbor.IsAir)
+            {
+                return true;
+            }
+
+            return !currentIsWater && neighbor.Type == VoxelType.Water;
         }
 
         // Voisin dans ce chunk : accès direct ; sinon on lit le tableau du
@@ -112,9 +125,12 @@ namespace CubeWorld.World
                 : SampleNeighbor(NeighborFront, local.x, local.y, 0);
         }
 
+        // Un job Burst ne peut pas recevoir un NativeArray par défaut (non
+        // construit) : un voisin non chargé est représenté par un tableau
+        // valide mais de longueur 0, reconnu ici plutôt que via IsCreated.
         private Voxel SampleNeighbor(NativeArray<Voxel> neighbor, int x, int y, int z)
         {
-            return neighbor.IsCreated ? neighbor[ToIndex(x, y, z)] : Voxel.Air;
+            return neighbor.Length > 0 ? neighbor[ToIndex(x, y, z)] : Voxel.Air;
         }
 
         private void AddFace(int3 localPos, int face, Color32 color, bool isWater)
