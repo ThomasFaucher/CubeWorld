@@ -106,6 +106,19 @@ namespace CubeWorld.World
             }
         }
 
+        /// <summary>
+        /// Change la cible autour de laquelle le monde streame (et, si
+        /// <see cref="_placeTargetAboveTerrain"/> est actif, sera placée
+        /// au-dessus du terrain dans <see cref="Start"/>). Destiné à être
+        /// appelé depuis <c>Awake()</c> d'un autre script (ex. PlayerBootstrap) :
+        /// Unity garantit que tous les Awake s'exécutent avant tous les Start,
+        /// donc la cible est déjà en place quand ce composant se lance.
+        /// </summary>
+        public void SetViewTarget(Transform target)
+        {
+            _viewTarget = target;
+        }
+
         // Colonne de chunks (x, z) contenant cette position monde.
         private int2 WorldToColumn(Vector3 position)
         {
@@ -193,7 +206,11 @@ namespace CubeWorld.World
                 chunkVisuals[chunk.Coord] = visual;
             }
 
-            ApplyMesh(visual.OpaqueFilter, opaqueData.IsEmpty ? null : opaqueData.ToMesh());
+            Mesh opaqueMesh = opaqueData.IsEmpty ? null : opaqueData.ToMesh();
+            ApplyMesh(visual.OpaqueFilter, opaqueMesh);
+            // Collision physique : même mesh que le rendu (l'eau n'a pas de
+            // collider, elle n'est pas solide — voir Voxel.IsSolid).
+            visual.OpaqueCollider.sharedMesh = opaqueMesh;
 
             bool hasWater = !waterData.IsEmpty;
             visual.WaterObject.SetActive(hasWater);
@@ -208,6 +225,7 @@ namespace CubeWorld.World
 
             var opaqueFilter = root.AddComponent<MeshFilter>();
             root.AddComponent<MeshRenderer>().sharedMaterial = terrainMaterial;
+            var opaqueCollider = root.AddComponent<MeshCollider>();
 
             var waterObject = new GameObject("Water");
             waterObject.transform.SetParent(root.transform, false);
@@ -215,7 +233,7 @@ namespace CubeWorld.World
             waterObject.AddComponent<MeshRenderer>().sharedMaterial = waterMaterial;
             waterObject.SetActive(false);
 
-            return new ChunkVisual(root, opaqueFilter, waterObject, waterFilter);
+            return new ChunkVisual(root, opaqueFilter, opaqueCollider, waterObject, waterFilter);
         }
 
         // Remplace le mesh d'un MeshFilter, en détruisant l'ancien (asset runtime).
@@ -285,13 +303,15 @@ namespace CubeWorld.World
         {
             public readonly GameObject Root;
             public readonly MeshFilter OpaqueFilter;
+            public readonly MeshCollider OpaqueCollider;
             public readonly GameObject WaterObject;
             public readonly MeshFilter WaterFilter;
 
-            public ChunkVisual(GameObject root, MeshFilter opaqueFilter, GameObject waterObject, MeshFilter waterFilter)
+            public ChunkVisual(GameObject root, MeshFilter opaqueFilter, MeshCollider opaqueCollider, GameObject waterObject, MeshFilter waterFilter)
             {
                 Root = root;
                 OpaqueFilter = opaqueFilter;
+                OpaqueCollider = opaqueCollider;
                 WaterObject = waterObject;
                 WaterFilter = waterFilter;
             }
