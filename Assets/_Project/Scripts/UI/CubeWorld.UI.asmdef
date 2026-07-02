@@ -1,0 +1,16 @@
+{
+    "name": "CubeWorld.UI",
+    "rootNamespace": "CubeWorld.UI",
+    "references": [
+        "CubeWorld.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
