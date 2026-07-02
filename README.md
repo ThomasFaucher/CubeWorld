@@ -67,11 +67,14 @@ Les dossiers `Prefabs/`, `Materials/`, etc. seront créés au fil du besoin.
 
 ### Phase 1 — Monde voxel
 - [x] Types de base (Voxel, VoxelType, WorldConfig)
-- [ ] Système de chunks cubiques (32×32×32)
-- [ ] Génération procédurale du terrain (Perlin Noise)
-- [ ] Génération de mesh avec couleurs par vertex + flat shading (style CubeWorld)
-- [ ] Face culling (ne pas afficher les faces cachées)
-- [ ] Chargement/déchargement dynamique des chunks autour du joueur (Jobs + Burst)
+- [x] Système de chunks cubiques (32×32×32)
+- [x] Génération procédurale du terrain (Perlin Noise fractal, couches, mer)
+- [x] Génération de mesh avec couleurs par vertex + flat shading (style CubeWorld)
+- [x] Face culling (ne pas afficher les faces cachées)
+- [x] Chargement/déchargement dynamique des chunks autour du joueur (streaming budgété par frame)
+- [x] Caméra libre provisoire pour explorer (ZQSD/WASD + souris)
+- [ ] Génération multithread (Jobs + Burst)
+- [ ] Eau transparente (rendue opaque pour l'instant)
 
 ### Phase 2 — Joueur
 - [ ] CharacterController + déplacement (marche, sprint, saut)

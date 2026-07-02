@@ -43,5 +43,8 @@ namespace CubeWorld.World
 
         /// <summary>Nombre total de voxels dans un chunk.</summary>
         public int VoxelsPerChunk => _chunkSize * _chunkSize * _chunkSize;
+
+        /// <summary>Nombre de chunks empilés verticalement pour couvrir la hauteur max du terrain.</summary>
+        public int VerticalChunkCount => (_maxTerrainHeight + _chunkSize - 1) / _chunkSize;
     }
 }
