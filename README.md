@@ -23,16 +23,16 @@ L'esthétique visée est celle du CubeWorld original, qui se distingue nettement
 
 ## Stack technique
 
-| Technologie | Version | Rôle |
-|---|---|---|
-| Unity | 6.3 LTS (6000.3.19f1) | Moteur de jeu |
-| C# | .NET 9 | Langage de scripting |
-| Universal Render Pipeline (URP) | — | Pipeline de rendu |
-| Burst Compiler | — | Compilation native pour les performances |
-| Unity Jobs System | — | Génération de chunks en multithread |
-| Input System | — | Gestion clavier / souris |
-| Cinemachine | — | Caméra 3ème personne |
-| TextMeshPro | — | UI et texte in-game |
+| Technologie                     | Version               | Rôle                                     |
+| ------------------------------- | --------------------- | ---------------------------------------- |
+| Unity                           | 6.3 LTS (6000.3.19f1) | Moteur de jeu                            |
+| C#                              | .NET 9                | Langage de scripting                     |
+| Universal Render Pipeline (URP) | —                     | Pipeline de rendu                        |
+| Burst Compiler                  | —                     | Compilation native pour les performances |
+| Unity Jobs System               | —                     | Génération de chunks en multithread      |
+| Input System                    | —                     | Gestion clavier / souris                 |
+| Cinemachine                     | —                     | Caméra 3ème personne                     |
+| TextMeshPro                     | —                     | UI et texte in-game                      |
 
 ---
 
@@ -66,6 +66,7 @@ Les dossiers `Prefabs/`, `Materials/`, etc. seront créés au fil du besoin.
 ## Roadmap
 
 ### Phase 1 — Monde voxel
+
 - [x] Types de base (Voxel, VoxelType, WorldConfig)
 - [x] Système de chunks cubiques (32×32×32)
 - [x] Génération procédurale du terrain (Perlin Noise fractal, couches, mer)
@@ -77,28 +78,33 @@ Les dossiers `Prefabs/`, `Materials/`, etc. seront créés au fil du besoin.
 - [x] Eau transparente
 
 ### Phase 2 — Joueur
-- [ ] CharacterController + déplacement (marche, sprint, saut)
-- [ ] Caméra 3ème personne (Cinemachine)
-- [ ] Collision avec le terrain voxel
+
+- [x] CharacterController + déplacement (marche, sprint, saut)
+- [x] Caméra 3ème personne (Cinemachine)
+- [x] Collision avec le terrain voxel
 
 ### Phase 3 — Combat & RPG
-- [ ] Système de stats (HP, MP, niveau, XP)
-- [ ] Armes et attaques de base
-- [ ] Ennemis avec IA basique (NavMesh)
-- [ ] Loot et drops
+
+- [x] Système de stats (HP, MP, niveau, XP)
+- [x] Armes et attaques de base
+- [x] Ennemis avec IA basique (NavMesh)
+- [x] Loot et drops
 
 ### Phase 4 — Crafting & inventaire
+
 - [ ] Système d'inventaire
 - [ ] Crafting de base
 - [ ] Équipement (armes, armures)
 
 ### Phase 5 — Monde avancé
+
 - [ ] Biomes (forêt, désert, neige...)
 - [ ] Eau et fluides
 - [ ] Végétation procédurale
 - [ ] Donjons et structures générées
 
 ### Phase 6 — Polish
+
 - [ ] Effets visuels (particules, lumières)
 - [ ] Son et musique
 - [ ] Interface utilisateur complète
@@ -112,7 +118,7 @@ Les dossiers `Prefabs/`, `Materials/`, etc. seront créés au fil du besoin.
 
 - [Unity Hub](https://unity.com/download)
 - Unity **6.3 LTS** (6000.3.19f1)
-- Visual Studio 2022 avec le module *Game development with Unity*
+- Visual Studio 2022 avec le module _Game development with Unity_
 - Git + Git LFS
 
 ### Cloner le projet

@@ -3,6 +3,7 @@
     "rootNamespace": "CubeWorld.World",
     "references": [
         "CubeWorld.Core",
+        "Unity.AI.Navigation",
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Mathematics"

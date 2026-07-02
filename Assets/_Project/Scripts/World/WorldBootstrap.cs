@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CubeWorld.Core;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -59,7 +60,7 @@ namespace CubeWorld.World
             if (_placeTargetAboveTerrain && ViewTarget is { } target)
             {
                 int surfaceHeight = world.GetSurfaceHeight(0, 0);
-                target.position = new Vector3(0f, surfaceHeight + 20f, 0f);
+                target.position = new Vector3(0f, surfaceHeight * config.VoxelSize + 20f, 0f);
             }
         }
 
@@ -92,7 +93,8 @@ namespace CubeWorld.World
             world?.Dispose();
         }
 
-        private Transform ViewTarget
+        /// <summary>Cible autour de laquelle le monde streame (voir SetViewTarget). Public pour NavMeshRegionBaker.</summary>
+        public Transform ViewTarget
         {
             get
             {
@@ -119,12 +121,14 @@ namespace CubeWorld.World
             _viewTarget = target;
         }
 
-        // Colonne de chunks (x, z) contenant cette position monde.
+        // Colonne de chunks (x, z) contenant cette position monde. La largeur
+        // d'une colonne, en unités monde, est ChunkSize (voxels) * VoxelSize.
         private int2 WorldToColumn(Vector3 position)
         {
+            float columnWorldSize = config.ChunkSize * config.VoxelSize;
             return new int2(
-                (int)math.floor(position.x / config.ChunkSize),
-                (int)math.floor(position.z / config.ChunkSize));
+                (int)math.floor(position.x / columnWorldSize),
+                (int)math.floor(position.z / columnWorldSize));
         }
 
         // Appelé pour tout chunk dont le mesh doit être (re)construit : premier
@@ -215,13 +219,23 @@ namespace CubeWorld.World
             bool hasWater = !waterData.IsEmpty;
             visual.WaterObject.SetActive(hasWater);
             ApplyMesh(visual.WaterFilter, hasWater ? waterData.ToMesh() : null);
+
+            // Signale qu'un collider de terrain vient de (re)paraître : NavMeshRegionBaker
+            // s'en sert pour savoir quand rebaker.
+            EventBus.Publish(new ChunkMeshMaterializedEvent(
+                new Vector3Int(chunk.Coord.x, chunk.Coord.y, chunk.Coord.z),
+                (Vector3)(float3)chunk.WorldOrigin * config.VoxelSize));
         }
 
         private ChunkVisual CreateChunkVisual(Chunk chunk)
         {
             var root = new GameObject($"Chunk ({chunk.Coord.x}, {chunk.Coord.y}, {chunk.Coord.z})");
             root.transform.SetParent(transform, false);
-            root.transform.localPosition = (float3)chunk.WorldOrigin;
+            root.transform.localPosition = (float3)chunk.WorldOrigin * config.VoxelSize;
+            // Le mesh est généré en unités de voxel (1 = un cube) ; l'échelle du
+            // transform le ramène à la vraie taille monde (voir WorldConfig.VoxelSize).
+            // S'applique aussi au collider (MeshCollider suit l'échelle du transform).
+            root.transform.localScale = Vector3.one * config.VoxelSize;
 
             var opaqueFilter = root.AddComponent<MeshFilter>();
             root.AddComponent<MeshRenderer>().sharedMaterial = terrainMaterial;
@@ -265,6 +279,8 @@ namespace CubeWorld.World
             {
                 DestroyChunkVisual(visual);
             }
+
+            EventBus.Publish(new ChunkUnloadedEvent(new Vector3Int(coord.x, coord.y, coord.z)));
         }
 
         private void DestroyChunkVisual(ChunkVisual visual)

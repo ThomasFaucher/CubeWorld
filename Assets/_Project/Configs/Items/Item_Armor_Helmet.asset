@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 711daf40dc0a326448b350459430ecb5, type: 3}
+  m_Name: Item_Armor_Helmet
+  m_EditorClassIdentifier: CubeWorld.Combat::CubeWorld.Combat.ItemDefinition
+  _id: helmet
+  _displayName: Helmet
+  _color: {r: 1, g: 1, b: 1, a: 1}
+  _category: 2
+  _maxStackSize: 1
+  _weapon: {fileID: 0}
+  _armor: {fileID: 11400000, guid: 2b3dce6f59f0b434f94124fa27a1be2b, type: 2}

@@ -14,6 +14,9 @@ namespace CubeWorld.World
         [Tooltip("Taille d'un chunk cubique, en voxels (32 => 32x32x32).")]
         [SerializeField] private int _chunkSize = 32;
 
+        [Tooltip("Taille d'un voxel, en unités Unity (1 = cube unitaire ; < 1 = monde plus détaillé/granuleux, le joueur ne change pas de taille).")]
+        [SerializeField] private float _voxelSize = 0.5f;
+
         [Tooltip("Distance de vue horizontale, en chunks autour du joueur.")]
         [SerializeField] private int _viewDistance = 8;
 
@@ -34,6 +37,7 @@ namespace CubeWorld.World
         [SerializeField] private int _seaLevel = 40;
 
         public int ChunkSize => _chunkSize;
+        public float VoxelSize => _voxelSize;
         public int ViewDistance => _viewDistance;
         public int VerticalViewDistance => _verticalViewDistance;
         public int Seed => _seed;

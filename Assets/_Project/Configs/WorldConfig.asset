@@ -18,4 +18,4 @@ MonoBehaviour:
   _seed: 55
   _noiseScale: 0.008
   _maxTerrainHeight: 96
-  _seaLevel: 60
+  _seaLevel: 30

@@ -2,7 +2,12 @@
     "name": "CubeWorld.UI",
     "rootNamespace": "CubeWorld.UI",
     "references": [
-        "CubeWorld.Core"
+        "CubeWorld.Core",
+        "CubeWorld.Combat",
+        "CubeWorld.Player",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

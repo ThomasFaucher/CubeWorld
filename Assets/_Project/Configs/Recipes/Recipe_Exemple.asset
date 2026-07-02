@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cf71f6fbb6062c0429ebb5024429f1e0, type: 3}
+  m_Name: Recipe_Exemple
+  m_EditorClassIdentifier: CubeWorld.Combat::CubeWorld.Combat.CraftingRecipeDefinition
+  _ingredients:
+  - Item: {fileID: 11400000, guid: d847e06a95d2e394183382807c6d3c6d, type: 2}
+    Quantity: 4
+  - Item: {fileID: 0}
+    Quantity: 0
+  _outputItem: {fileID: 11400000, guid: 5c0a63e21af98174f84a78495ebcb09d, type: 2}
+  _outputQuantity: 1

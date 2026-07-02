@@ -4,6 +4,7 @@
     "references": [
         "CubeWorld.Core",
         "CubeWorld.World",
+        "CubeWorld.Combat",
         "Unity.InputSystem",
         "Unity.Cinemachine"
     ],

@@ -1,3 +1,5 @@
+using CubeWorld.Combat;
+using CubeWorld.Core;
 using CubeWorld.World;
 using Unity.Cinemachine;
 using UnityEngine;
@@ -17,8 +19,12 @@ namespace CubeWorld.Player
         [Tooltip("Le monde autour duquel le joueur sera placé et suivi.")]
         [SerializeField] private WorldBootstrap _worldBootstrap;
 
-        [Tooltip("Asset d'actions contenant l'action map « Player » (Move, Look, Jump, Sprint).")]
+        [Tooltip("Asset d'actions contenant l'action map « Player » (Move, Look, Jump, Sprint, Attack, Interact).")]
         [SerializeField] private InputActionAsset _inputActions;
+
+        [Header("Combat")]
+        [Tooltip("Item (Category = Weapon) équipé par défaut au démarrage.")]
+        [SerializeField] private ItemDefinition _startingWeaponItem;
 
         [Header("Caméra")]
         [Tooltip("Distance de la caméra derrière le joueur.")]
@@ -44,6 +50,22 @@ namespace CubeWorld.Player
             var playerObject = new GameObject("Player");
             player = playerObject.AddComponent<PlayerController>();
             player.BindInput(_inputActions);
+
+            var health = playerObject.AddComponent<PlayerHealth>();
+            var inventory = playerObject.AddComponent<PlayerInventory>();
+            var equipment = playerObject.AddComponent<PlayerEquipment>();
+            equipment.Bind(inventory, health);
+
+            if (_startingWeaponItem != null && inventory.Contents.TryAdd(_startingWeaponItem, 1))
+            {
+                equipment.EquipWeapon(_startingWeaponItem);
+            }
+
+            playerObject.AddComponent<PlayerCombat>().BindInput(_inputActions, equipment);
+            health.BindEquipment(equipment);
+            playerObject.AddComponent<PlayerLoot>().BindInput(_inputActions, inventory);
+            playerObject.AddComponent<PlayerCrafting>().Bind(inventory);
+            PlayerContext.Transform = playerObject.transform;
 
             cameraRig = PlayerCameraRig.Create(player.CameraTarget, _inputActions, _cameraDistance, _lookSensitivity);
 
