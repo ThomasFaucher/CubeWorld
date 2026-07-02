@@ -12,6 +12,13 @@ namespace CubeWorld.World
     /// </summary>
     public sealed class ChunkStreamer
     {
+        // Les 4 colonnes adjacentes horizontalement (pas de diagonale : le
+        // face culling ne regarde que les 6 faces axe-aligné d'un voxel).
+        private static readonly int2[] NeighborOffsets =
+        {
+            new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
+        };
+
         private readonly VoxelWorld world;
         private readonly WorldConfig config;
 
@@ -23,6 +30,10 @@ namespace CubeWorld.World
         private readonly List<int2> pending = new();
 
         private readonly List<int2> unloadBuffer = new();
+
+        // Colonnes dont au moins un chunk a changé de voisinage ce Process()
+        // et dont le mesh doit donc être reconstruit (évite les coutures).
+        private readonly HashSet<int2> dirtyColumns = new();
 
         private int2 center;
         private bool hasCenter;
@@ -52,13 +63,20 @@ namespace CubeWorld.World
         /// <summary>
         /// Charge jusqu'à <paramref name="maxColumns"/> colonnes (les plus proches
         /// d'abord) et décharge celles hors de portée. À appeler chaque frame.
+        /// <paramref name="onChunkMeshDirty"/> est appelé pour chaque chunk dont
+        /// le mesh doit être (re)construit : les chunks nouvellement chargés,
+        /// mais aussi ceux des colonnes voisines déjà chargées dont une face
+        /// vient de gagner ou perdre un voisin solide (évite les coutures entre
+        /// chunks générés à des frames différentes).
         /// </summary>
-        public void Process(int maxColumns, Action<Chunk> onChunkLoaded, Action<int3> onChunkUnloaded)
+        public void Process(int maxColumns, Action<Chunk> onChunkMeshDirty, Action<int3> onChunkUnloaded)
         {
             if (!hasCenter)
             {
                 return;
             }
+
+            dirtyColumns.Clear();
 
             UnloadDistantColumns(onChunkUnloaded);
 
@@ -75,10 +93,35 @@ namespace CubeWorld.World
 
                 for (int cy = 0; cy < config.VerticalChunkCount; cy++)
                 {
-                    onChunkLoaded(world.CreateChunk(new int3(column.x, cy, column.y)));
+                    world.RequestChunk(new int3(column.x, cy, column.y));
                 }
 
+                MarkDirtyWithLoadedNeighbors(column);
                 loaded++;
+            }
+
+            foreach (int2 column in dirtyColumns)
+            {
+                for (int cy = 0; cy < config.VerticalChunkCount; cy++)
+                {
+                    onChunkMeshDirty(world.RequestChunk(new int3(column.x, cy, column.y)));
+                }
+            }
+        }
+
+        // Marque la colonne elle-même, et toute colonne adjacente déjà chargée,
+        // comme ayant besoin d'un remesh (leur voisinage vient de changer).
+        private void MarkDirtyWithLoadedNeighbors(int2 column)
+        {
+            dirtyColumns.Add(column);
+
+            foreach (int2 offset in NeighborOffsets)
+            {
+                int2 neighbor = column + offset;
+                if (loadedColumns.Contains(neighbor))
+                {
+                    dirtyColumns.Add(neighbor);
+                }
             }
         }
 
@@ -133,6 +176,17 @@ namespace CubeWorld.World
                     var coord = new int3(column.x, cy, column.y);
                     world.RemoveChunk(coord);
                     onChunkUnloaded(coord);
+                }
+
+                // Les colonnes voisines encore chargées perdent un voisin solide :
+                // leurs faces bordant la colonne déchargée doivent réapparaître.
+                foreach (int2 offset in NeighborOffsets)
+                {
+                    int2 neighbor = column + offset;
+                    if (loadedColumns.Contains(neighbor))
+                    {
+                        dirtyColumns.Add(neighbor);
+                    }
                 }
             }
         }

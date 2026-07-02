@@ -73,8 +73,8 @@ Les dossiers `Prefabs/`, `Materials/`, etc. seront créés au fil du besoin.
 - [x] Face culling (ne pas afficher les faces cachées)
 - [x] Chargement/déchargement dynamique des chunks autour du joueur (streaming budgété par frame)
 - [x] Caméra libre provisoire pour explorer (ZQSD/WASD + souris)
-- [ ] Génération multithread (Jobs + Burst)
-- [ ] Eau transparente (rendue opaque pour l'instant)
+- [x] Génération multithread (Jobs + Burst)
+- [x] Eau transparente
 
 ### Phase 2 — Joueur
 - [ ] CharacterController + déplacement (marche, sprint, saut)

@@ -19,7 +19,8 @@ namespace CubeWorld.World
                 VoxelType.Stone => new Color32(130, 134, 138, 255),
                 VoxelType.Sand => new Color32(226, 205, 132, 255),
                 VoxelType.Snow => new Color32(238, 244, 250, 255),
-                VoxelType.Water => new Color32(58, 126, 204, 255),
+                // Alpha réduite : rendue avec le shader transparent CubeWorld/VoxelWater.
+                VoxelType.Water => new Color32(58, 126, 204, 180),
                 _ => new Color32(255, 0, 255, 255), // magenta = type inconnu, visible en debug
             };
 
