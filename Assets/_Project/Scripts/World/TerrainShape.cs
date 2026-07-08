@@ -37,8 +37,8 @@ namespace CubeWorld.World
             return sum / totalAmplitude;
         }
 
-        /// <summary>Choisit le voxel à cette hauteur monde selon la hauteur de surface locale.</summary>
-        public static Voxel CreateVoxel(int worldY, int surfaceHeight, int seaLevel, int snowHeight, int dirtDepth)
+        /// <summary>Choisit le voxel à cette hauteur monde selon la hauteur de surface locale et le biome.</summary>
+        public static Voxel CreateVoxel(int worldY, int surfaceHeight, int seaLevel, int snowHeight, int dirtDepth, BiomeType biome)
         {
             // Au-dessus de la surface : de l'eau jusqu'au niveau de la mer, sinon de l'air.
             if (worldY > surfaceHeight)
@@ -48,7 +48,9 @@ namespace CubeWorld.World
                     : Voxel.Air;
             }
 
-            // Voxel de surface : sable près de l'eau, neige en altitude, herbe sinon.
+            // Voxel de surface : sable près de l'eau (tous biomes, une côte reste une
+            // côte), sinon le biome remplace la règle de hauteur (Désert/Neige) ou la
+            // laisse telle quelle (Forêt/Plaines : neige en altitude, herbe sinon).
             if (worldY == surfaceHeight)
             {
                 if (worldY <= seaLevel + 1)
@@ -56,12 +58,23 @@ namespace CubeWorld.World
                     return new Voxel(VoxelType.Sand);
                 }
 
-                return worldY >= snowHeight
-                    ? new Voxel(VoxelType.Snow)
-                    : new Voxel(VoxelType.Grass);
+                return biome switch
+                {
+                    BiomeType.Desert => new Voxel(VoxelType.Sand),
+                    BiomeType.Snow => new Voxel(VoxelType.Snow),
+                    _ => worldY >= snowHeight
+                        ? new Voxel(VoxelType.Snow)
+                        : new Voxel(VoxelType.Grass),
+                };
             }
 
-            // Sous la surface : une couche de terre, puis de la pierre.
+            // Sous la surface : dune de sable homogène en désert, sinon une couche de
+            // terre puis de la pierre.
+            if (biome == BiomeType.Desert && worldY > surfaceHeight - dirtDepth)
+            {
+                return new Voxel(VoxelType.Sand);
+            }
+
             return worldY > surfaceHeight - dirtDepth
                 ? new Voxel(VoxelType.Dirt)
                 : new Voxel(VoxelType.Stone);

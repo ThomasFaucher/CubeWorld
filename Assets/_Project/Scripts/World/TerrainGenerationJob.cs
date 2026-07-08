@@ -32,16 +32,36 @@ namespace CubeWorld.World
         public int SnowHeight;
         public int DirtDepth;
 
+        public float2 TemperatureSeedOffset;
+        public float2 HumiditySeedOffset;
+        public float BiomeNoiseScale;
+        public int BiomeOctaves;
+        public float SnowTemperatureThreshold;
+        public float DesertTemperatureThreshold;
+        public float DesertHumidityThreshold;
+        public float ForestHumidityThreshold;
+
         public void Execute(int columnIndex)
         {
             int x = columnIndex % Size;
             int z = columnIndex / Size;
 
             int surfaceHeight = TerrainShape.SampleHeight(Origin.x + x, Origin.z + z, SeedOffset, NoiseScale, Octaves, MaxTerrainHeight);
+            BiomeType biome = BiomeShape.Sample(
+                Origin.x + x,
+                Origin.z + z,
+                TemperatureSeedOffset,
+                HumiditySeedOffset,
+                BiomeNoiseScale,
+                BiomeOctaves,
+                SnowTemperatureThreshold,
+                DesertTemperatureThreshold,
+                DesertHumidityThreshold,
+                ForestHumidityThreshold);
 
             for (int y = 0; y < Size; y++)
             {
-                Voxel voxel = TerrainShape.CreateVoxel(Origin.y + y, surfaceHeight, SeaLevel, SnowHeight, DirtDepth);
+                Voxel voxel = TerrainShape.CreateVoxel(Origin.y + y, surfaceHeight, SeaLevel, SnowHeight, DirtDepth, biome);
                 Voxels[x + Size * (y + Size * z)] = voxel;
             }
         }

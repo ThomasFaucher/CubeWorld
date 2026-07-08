@@ -14,23 +14,27 @@ namespace CubeWorld.World
         {
             Color32 baseColor = type switch
             {
-                VoxelType.Grass => new Color32(96, 170, 66, 255),
-                VoxelType.Dirt => new Color32(126, 88, 60, 255),
-                VoxelType.Stone => new Color32(130, 134, 138, 255),
-                VoxelType.Sand => new Color32(226, 205, 132, 255),
-                VoxelType.Snow => new Color32(238, 244, 250, 255),
+                // Palette plus saturée/vive (façon cartoon) que des teintes
+                // terreuses réalistes : le but est que la couleur "pop" même
+                // une fois passée dans l'éclairage en paliers du shader.
+                VoxelType.Grass => new Color32(74, 197, 58, 255),
+                VoxelType.Dirt => new Color32(151, 96, 51, 255),
+                VoxelType.Stone => new Color32(142, 147, 153, 255),
+                VoxelType.Sand => new Color32(241, 201, 90, 255),
+                VoxelType.Snow => new Color32(255, 255, 255, 255),
                 // Alpha réduite : rendue avec le shader transparent CubeWorld/VoxelWater.
-                VoxelType.Water => new Color32(58, 126, 204, 180),
+                VoxelType.Water => new Color32(31, 143, 214, 180),
                 _ => new Color32(255, 0, 255, 255), // magenta = type inconnu, visible en debug
             };
 
-            // L'herbe varie plus que le reste (prairies chatoyantes façon CubeWorld),
-            // l'eau reste parfaitement uniforme.
+            // Variation légère seulement : le style cartoon visé veut des
+            // couleurs unies, le relief se lit via l'éclairage en paliers du
+            // shader (CubeWorld/VoxelTerrain), pas via le bruit de couleur.
             float strength = type switch
             {
-                VoxelType.Grass => 0.10f,
+                VoxelType.Grass => 0.025f,
                 VoxelType.Water => 0f,
-                _ => 0.05f,
+                _ => 0.015f,
             };
 
             return Vary(baseColor, worldPosition, strength);

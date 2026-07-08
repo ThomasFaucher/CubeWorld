@@ -26,6 +26,11 @@ namespace CubeWorld.Player
         [Tooltip("Item (Category = Weapon) équipé par défaut au démarrage.")]
         [SerializeField] private ItemDefinition _startingWeaponItem;
 
+        [Header("Apparence")]
+        [Tooltip("Silhouette voxel du joueur (couleurs + accessoires).")]
+        [SerializeField]
+        private PlayerArchetype _playerArchetype = PlayerArchetype.Swordsman;
+
         [Header("Caméra")]
         [Tooltip("Distance de la caméra derrière le joueur.")]
         [SerializeField] private float _cameraDistance = 6f;
@@ -49,6 +54,7 @@ namespace CubeWorld.Player
 
             var playerObject = new GameObject("Player");
             player = playerObject.AddComponent<PlayerController>();
+            player.Initialize(_playerArchetype);
             player.BindInput(_inputActions);
 
             var health = playerObject.AddComponent<PlayerHealth>();

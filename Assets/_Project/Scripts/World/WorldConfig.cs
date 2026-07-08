@@ -36,6 +36,10 @@ namespace CubeWorld.World
         [Tooltip("Niveau de la mer, en voxels.")]
         [SerializeField] private int _seaLevel = 40;
 
+        [Header("Biomes")]
+        [Tooltip("Échelle du bruit de biome : plus petit = régions de biome plus larges (nettement < NoiseScale).")]
+        [SerializeField] private float _biomeNoiseScale = 0.0015f;
+
         public int ChunkSize => _chunkSize;
         public float VoxelSize => _voxelSize;
         public int ViewDistance => _viewDistance;
@@ -44,6 +48,7 @@ namespace CubeWorld.World
         public float NoiseScale => _noiseScale;
         public int MaxTerrainHeight => _maxTerrainHeight;
         public int SeaLevel => _seaLevel;
+        public float BiomeNoiseScale => _biomeNoiseScale;
 
         /// <summary>Nombre total de voxels dans un chunk.</summary>
         public int VoxelsPerChunk => _chunkSize * _chunkSize * _chunkSize;

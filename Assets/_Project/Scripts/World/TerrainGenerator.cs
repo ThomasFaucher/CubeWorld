@@ -20,9 +20,19 @@ namespace CubeWorld.World
 
         private const int NoiseOctaves = 4;
 
+        // Bruit de biome : moins d'octaves que le relief (des taches lisses, pas de
+        // détail fin) ; seuils de classification température/humidité (§BiomeShape).
+        private const int BiomeNoiseOctaves = 2;
+        private const float SnowTemperatureThreshold = 0.35f;
+        private const float DesertTemperatureThreshold = 0.65f;
+        private const float DesertHumidityThreshold = 0.4f;
+        private const float ForestHumidityThreshold = 0.55f;
+
         private readonly WorldConfig config;
         private readonly float2 seedOffset;
         private readonly int snowHeight;
+        private readonly float2 temperatureSeedOffset;
+        private readonly float2 humiditySeedOffset;
 
         public TerrainGenerator(WorldConfig config)
         {
@@ -33,6 +43,8 @@ namespace CubeWorld.World
             // deux graines différentes produisent deux mondes différents.
             var rng = new Random(math.max(1u, (uint)config.Seed));
             seedOffset = rng.NextFloat2(-10000f, 10000f);
+            temperatureSeedOffset = rng.NextFloat2(-10000f, 10000f);
+            humiditySeedOffset = rng.NextFloat2(-10000f, 10000f);
         }
 
         /// <summary>Planifie le remplissage des voxels du chunk sur un thread de fond.</summary>
@@ -50,6 +62,14 @@ namespace CubeWorld.World
                 SeaLevel = config.SeaLevel,
                 SnowHeight = snowHeight,
                 DirtDepth = DirtDepth,
+                TemperatureSeedOffset = temperatureSeedOffset,
+                HumiditySeedOffset = humiditySeedOffset,
+                BiomeNoiseScale = config.BiomeNoiseScale,
+                BiomeOctaves = BiomeNoiseOctaves,
+                SnowTemperatureThreshold = SnowTemperatureThreshold,
+                DesertTemperatureThreshold = DesertTemperatureThreshold,
+                DesertHumidityThreshold = DesertHumidityThreshold,
+                ForestHumidityThreshold = ForestHumidityThreshold,
             };
 
             int columnCount = chunk.Size * chunk.Size;
@@ -61,6 +81,22 @@ namespace CubeWorld.World
         public int SampleHeight(int worldX, int worldZ)
         {
             return TerrainShape.SampleHeight(worldX, worldZ, seedOffset, config.NoiseScale, NoiseOctaves, config.MaxTerrainHeight);
+        }
+
+        /// <summary>Biome de la colonne (x, z) monde (échantillon ponctuel hors job — utilisé par la végétation).</summary>
+        public BiomeType SampleBiome(int worldX, int worldZ)
+        {
+            return BiomeShape.Sample(
+                worldX,
+                worldZ,
+                temperatureSeedOffset,
+                humiditySeedOffset,
+                config.BiomeNoiseScale,
+                BiomeNoiseOctaves,
+                SnowTemperatureThreshold,
+                DesertTemperatureThreshold,
+                DesertHumidityThreshold,
+                ForestHumidityThreshold);
         }
     }
 }

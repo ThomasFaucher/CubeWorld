@@ -26,6 +26,13 @@ namespace CubeWorld.Player
         [SerializeField] private float _radius = 0.4f;
         [SerializeField] private Vector3 _cameraTargetOffset = new(0f, 1.6f, 0f);
 
+        [Header("Visuel")]
+        [Tooltip("Hauteur du mesh voxel (chibi). Plus petit que le collider.")]
+        [SerializeField] private float _visualHeight = 1.28f;
+
+        private PlayerArchetype archetype = PlayerArchetype.Swordsman;
+        private GameObject visualRoot;
+
         private CharacterController controller;
         private PlayerMotor motor;
         private InputActionMap boundMap;
@@ -51,8 +58,13 @@ namespace CubeWorld.Player
             target.transform.SetParent(transform, false);
             target.transform.localPosition = _cameraTargetOffset;
             CameraTarget = target.transform;
+        }
 
-            CreatePlaceholderVisual();
+        /// <summary>Appelé par PlayerBootstrap juste après AddComponent, avant Start.</summary>
+        public void Initialize(PlayerArchetype playerArchetype)
+        {
+            archetype = playerArchetype;
+            CreateVoxelVisual();
         }
 
         /// <summary>Active les actions Move/Jump/Sprint de l'action map « Player » de cet asset.</summary>
@@ -92,22 +104,33 @@ namespace CubeWorld.Player
             }
         }
 
-        // Représentation visuelle temporaire (une capsule colorée), en attendant
-        // un vrai modèle de personnage. Pas de collider dessus : le
-        // CharacterController gère déjà la physique du joueur lui-même.
-        private void CreatePlaceholderVisual()
+        // Représentation visuelle : personnage voxel généré en code (style chibi
+        // CubeWorld). Pas de collider dessus : le CharacterController gère la
+        // physique du joueur lui-même.
+        private void CreateVoxelVisual()
         {
-            GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            visual.name = "PlaceholderVisual";
-            visual.transform.SetParent(transform, false);
-            visual.transform.localPosition = new Vector3(0f, _height * 0.5f, 0f);
-            visual.transform.localScale = new Vector3(_radius * 2f, _height * 0.5f, _radius * 2f);
-            Destroy(visual.GetComponent<Collider>());
+            if (visualRoot != null)
+            {
+                Destroy(visualRoot);
+            }
 
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            visualRoot = new GameObject("VoxelVisual");
+            visualRoot.transform.SetParent(transform, false);
+            visualRoot.transform.localPosition = Vector3.zero;
+
+            MeshFilter meshFilter = visualRoot.AddComponent<MeshFilter>();
+            meshFilter.sharedMesh = PlayerVoxelModelBuilder.Build(_visualHeight, archetype);
+
+            Shader shader = Shader.Find("CubeWorld/VoxelTerrain");
+            if (shader == null)
+            {
+                shader = Shader.Find("Universal Render Pipeline/Lit");
+            }
+
+            MeshRenderer renderer = visualRoot.AddComponent<MeshRenderer>();
             if (shader != null)
             {
-                visual.GetComponent<Renderer>().sharedMaterial = new Material(shader) { color = new Color(0.85f, 0.35f, 0.2f) };
+                renderer.sharedMaterial = new Material(shader);
             }
         }
     }

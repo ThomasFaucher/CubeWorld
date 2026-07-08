@@ -52,6 +52,33 @@ Shader "CubeWorld/VoxelTerrain"
                 return output;
             }
 
+            // Éclairage en paliers (cel shading) plutôt qu'un dégradé lambert
+            // continu : avec des couleurs de vertex unies, un dégradé lisse
+            // aplatit visuellement le relief des cubes. Des bandes franches
+            // (plein jour / pénombre / ombre) font au contraire ressortir
+            // chaque face selon son orientation à la lumière, sans avoir
+            // besoin de varier la couleur elle-même.
+            half CelBand(half ndotl, half shadowAtten, half distAtten)
+            {
+                half lightAmount = saturate(ndotl * shadowAtten * distAtten);
+
+                // Bandes resserrées (jamais trop sombres) : le relief doit se
+                // voir sans que les faces à l'ombre virent au gris terne.
+                if (lightAmount > 0.5h) { return 1.05h; }
+                if (lightAmount > 0.12h) { return 0.78h; }
+                return 0.58h;
+            }
+
+            // Ressature la couleur finale autour de sa luminance : compense le
+            // fait qu'une couleur unie multipliée par un éclairage < 1 tend
+            // vers le gris et paraît "fade" — garde des teintes franches façon
+            // cartoon quel que soit le palier de lumière.
+            half3 BoostSaturation(half3 color, half amount)
+            {
+                half luma = dot(color, half3(0.299h, 0.587h, 0.114h));
+                return lerp(luma.xxx, color, amount);
+            }
+
             half4 Frag(Varyings input) : SV_Target
             {
                 float3 normalWS = normalize(input.normalWS);
@@ -60,10 +87,11 @@ Shader "CubeWorld/VoxelTerrain"
                 Light mainLight = GetMainLight(shadowCoord);
 
                 half ndotl = saturate(dot(normalWS, mainLight.direction));
-                half3 lighting = SampleSH(normalWS)
-                    + mainLight.color * (ndotl * mainLight.shadowAttenuation * mainLight.distanceAttenuation);
+                half band = CelBand(ndotl, mainLight.shadowAttenuation, mainLight.distanceAttenuation);
+                half3 lighting = SampleSH(normalWS) + mainLight.color * band;
 
-                return half4(input.color.rgb * lighting, 1.0h);
+                half3 finalColor = BoostSaturation(input.color.rgb * lighting, 1.35h);
+                return half4(finalColor, 1.0h);
             }
             ENDHLSL
         }

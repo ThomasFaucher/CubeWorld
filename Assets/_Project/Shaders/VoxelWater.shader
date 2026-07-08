@@ -56,6 +56,26 @@ Shader "CubeWorld/VoxelWater"
                 return output;
             }
 
+            // Même éclairage en paliers que CubeWorld/VoxelTerrain (voir ce
+            // shader pour le détail) : garde l'eau cohérente avec le style
+            // cartoon du reste du terrain.
+            half CelBand(half ndotl, half shadowAtten, half distAtten)
+            {
+                half lightAmount = saturate(ndotl * shadowAtten * distAtten);
+
+                if (lightAmount > 0.5h) { return 1.05h; }
+                if (lightAmount > 0.12h) { return 0.78h; }
+                return 0.58h;
+            }
+
+            // Voir VoxelTerrain.shader : évite qu'une couleur unie assombrie
+            // par l'éclairage ne vire au gris terne.
+            half3 BoostSaturation(half3 color, half amount)
+            {
+                half luma = dot(color, half3(0.299h, 0.587h, 0.114h));
+                return lerp(luma.xxx, color, amount);
+            }
+
             half4 Frag(Varyings input) : SV_Target
             {
                 float3 normalWS = normalize(input.normalWS);
@@ -64,10 +84,11 @@ Shader "CubeWorld/VoxelWater"
                 Light mainLight = GetMainLight(shadowCoord);
 
                 half ndotl = saturate(dot(normalWS, mainLight.direction));
-                half3 lighting = SampleSH(normalWS)
-                    + mainLight.color * (ndotl * mainLight.shadowAttenuation * mainLight.distanceAttenuation);
+                half band = CelBand(ndotl, mainLight.shadowAttenuation, mainLight.distanceAttenuation);
+                half3 lighting = SampleSH(normalWS) + mainLight.color * band;
 
-                return half4(input.color.rgb * lighting, input.color.a);
+                half3 finalColor = BoostSaturation(input.color.rgb * lighting, 1.35h);
+                return half4(finalColor, input.color.a);
             }
             ENDHLSL
         }
