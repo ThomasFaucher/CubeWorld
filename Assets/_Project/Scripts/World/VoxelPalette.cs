@@ -22,6 +22,9 @@ namespace CubeWorld.World
                 VoxelType.Stone => new Color32(142, 147, 153, 255),
                 VoxelType.Sand => new Color32(241, 201, 90, 255),
                 VoxelType.Snow => new Color32(255, 255, 255, 255),
+                // Blanc bleuté, distinct du blanc pur de Snow : surface d'eau
+                // gelée en biome Neige (voir TerrainShape.CreateVoxel).
+                VoxelType.Ice => new Color32(214, 232, 245, 255),
                 // Alpha réduite : rendue avec le shader transparent CubeWorld/VoxelWater.
                 VoxelType.Water => new Color32(31, 143, 214, 180),
                 _ => new Color32(255, 0, 255, 255), // magenta = type inconnu, visible en debug

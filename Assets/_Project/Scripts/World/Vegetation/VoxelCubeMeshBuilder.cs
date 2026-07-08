@@ -1,20 +1,23 @@
 using System;
 using UnityEngine;
 
-namespace CubeWorld.Player.VoxelModels
+namespace CubeWorld.World
 {
-    /// <summary>Primitives de mesh voxel partagées par tous les archétypes.</summary>
-    internal static class PlayerVoxelMeshCore
+    /// <summary>
+    /// Primitives de mesh voxel partagées par les arbres et les nuages (mêmes
+    /// volumes de mini-cubes que <c>Player.VoxelModels.PlayerVoxelMeshCore</c>,
+    /// copie indépendante côté World — voir docs/ARCHITECTURE.md, World ne doit
+    /// jamais dépendre de Player).
+    /// </summary>
+    internal static class VoxelCubeMeshBuilder
     {
-        internal const float HairPoofDomeCutoff = 0.30f;
-
         internal static void AddPart(
-            PlayerVoxelMeshData mesh,
+            VoxelCubeMeshData mesh,
             Vector3Int origin,
             int sx,
             int sy,
             int sz,
-            PlayerVoxelShape shape,
+            VoxelCubeShape shape,
             Color32 color,
             float unit,
             int seed
@@ -24,12 +27,12 @@ namespace CubeWorld.Player.VoxelModels
         }
 
         internal static void AddPart(
-            PlayerVoxelMeshData mesh,
+            VoxelCubeMeshData mesh,
             Vector3Int origin,
             int sx,
             int sy,
             int sz,
-            PlayerVoxelShape shape,
+            VoxelCubeShape shape,
             Func<int, int, int, Color32> colorAt,
             float unit,
             int seed
@@ -82,7 +85,11 @@ namespace CubeWorld.Player.VoxelModels
             }
         }
 
-        private static bool[,,] BuildMask(PlayerVoxelShape shape, int sx, int sy, int sz)
+        // Volume plein (Box), colonne à section arrondie (Column, coins coupés
+        // sur X/Z, pleine hauteur sur Y) ou sphère voxelisée (Sphere, coins
+        // coupés sur les 3 axes — un nuage aplati n'est qu'une Sphere avec
+        // sy < sx/sz).
+        private static bool[,,] BuildMask(VoxelCubeShape shape, int sx, int sy, int sz)
         {
             var mask = new bool[sx, sy, sz];
             float cx = (sx - 1) / 2f;
@@ -98,17 +105,14 @@ namespace CubeWorld.Player.VoxelModels
                 {
                     for (int z = 0; z < sz; z++)
                     {
-                        float sphereDistance =
-                            Sq((x - cx) / rx) + Sq((y - cy) / ry) + Sq((z - cz) / rz);
-
                         mask[x, y, z] = shape switch
                         {
-                            PlayerVoxelShape.Box => true,
-                            PlayerVoxelShape.Column => Sq((x - cx) / rx) + Sq((z - cz) / rz) <= 0.82f,
-                            PlayerVoxelShape.Sphere => sphereDistance <= 0.92f,
-                            PlayerVoxelShape.Dome => y >= sy * HairPoofDomeCutoff && sphereDistance <= 0.92f,
-                            PlayerVoxelShape.ConeUp => InCone(x, y, z, cx, cz, rx, rz, sy, fromTop: false),
-                            PlayerVoxelShape.ConeDown => InCone(x, y, z, cx, cz, rx, rz, sy, fromTop: true),
+                            VoxelCubeShape.Box => true,
+                            VoxelCubeShape.Column => Sq((x - cx) / rx) + Sq((z - cz) / rz) <= 0.82f,
+                            VoxelCubeShape.Sphere => Sq((x - cx) / rx)
+                                + Sq((y - cy) / ry)
+                                + Sq((z - cz) / rz)
+                                <= 0.92f,
                             _ => true,
                         };
                     }
@@ -120,33 +124,8 @@ namespace CubeWorld.Player.VoxelModels
 
         private static float Sq(float v) => v * v;
 
-        /// <summary>Coupe conique : plein à la base, se resserre jusqu'à une pointe centrale.</summary>
-        private static bool InCone(
-            int x,
-            int y,
-            int z,
-            float cx,
-            float cz,
-            float rx,
-            float rz,
-            int sy,
-            bool fromTop
-        )
-        {
-            float layer = sy <= 1 ? 0f : (float)y / (sy - 1);
-            float t = fromTop ? layer : 1f - layer;
-            t = Mathf.Max(t, 0.12f);
-
-            return Sq((x - cx) / (rx * t)) + Sq((z - cz) / (rz * t)) <= 0.9f;
-        }
-
-        // Éclairage "voxel" façon lumière zénithale : dessus plus clair, dessous plus sombre,
-        // faces latérales légèrement assombries. Donne du volume à toutes les primitives
-        // (Box/Column/Sphere/...) sans toucher à leur géométrie.
-        private static readonly float[] FaceShade = { 0.90f, 1.0f, 1.14f, 0.70f, 0.85f, 0.85f };
-
         private static void AddFace(
-            PlayerVoxelMeshData mesh,
+            VoxelCubeMeshData mesh,
             Vector3Int origin,
             int x,
             int y,
@@ -158,7 +137,6 @@ namespace CubeWorld.Player.VoxelModels
         {
             Vector3 normal = FaceDirection(face);
             int baseIndex = mesh.Vertices.Count;
-            Color32 shadedColor = ApplyShade(color, FaceShade[face]);
 
             for (int i = 0; i < 4; i++)
             {
@@ -166,7 +144,7 @@ namespace CubeWorld.Player.VoxelModels
                     new Vector3(origin.x + x, origin.y + y, origin.z + z) + FaceCorner(face, i);
                 mesh.Vertices.Add(corner * unit);
                 mesh.Normals.Add(normal);
-                mesh.Colors.Add(shadedColor);
+                mesh.Colors.Add(color);
             }
 
             mesh.Triangles.Add(baseIndex + 0);
@@ -177,14 +155,8 @@ namespace CubeWorld.Player.VoxelModels
             mesh.Triangles.Add(baseIndex + 3);
         }
 
-        private static Color32 ApplyShade(Color32 color, float factor) =>
-            new Color32(
-                (byte)Mathf.Clamp(Mathf.RoundToInt(color.r * factor), 0, 255),
-                (byte)Mathf.Clamp(Mathf.RoundToInt(color.g * factor), 0, 255),
-                (byte)Mathf.Clamp(Mathf.RoundToInt(color.b * factor), 0, 255),
-                color.a
-            );
-
+        // Légère variation déterministe de la couleur par mini-cube, même
+        // principe que VoxelPalette.Vary / PlayerVoxelMeshCore.Jitter.
         private static Color32 Jitter(Color32 color, int seed, int x, int y, int z)
         {
             const float strength = 0.02f;

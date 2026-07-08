@@ -1,3 +1,4 @@
+using CubeWorld.Player.VoxelModels.Generation;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -30,7 +31,11 @@ namespace CubeWorld.Player
         [Tooltip("Hauteur du mesh voxel (chibi). Plus petit que le collider.")]
         [SerializeField] private float _visualHeight = 1.28f;
 
+        [Tooltip("Debug : expression du visage (archétypes procéduraux uniquement, ex. Swordsman).")]
+        [SerializeField] private CharacterExpression _debugExpression = CharacterExpression.Neutral;
+
         private PlayerArchetype archetype = PlayerArchetype.Swordsman;
+        private int seed;
         private GameObject visualRoot;
 
         private CharacterController controller;
@@ -61,9 +66,16 @@ namespace CubeWorld.Player
         }
 
         /// <summary>Appelé par PlayerBootstrap juste après AddComponent, avant Start.</summary>
-        public void Initialize(PlayerArchetype playerArchetype)
+        public void Initialize(PlayerArchetype playerArchetype) => Initialize(playerArchetype, seed: 0);
+
+        /// <summary>
+        /// Variante avec seed explicite : même seed -> même personnage généré
+        /// (couleurs, proportions, cape, pauldron, coiffure pour les archétypes procéduraux).
+        /// </summary>
+        public void Initialize(PlayerArchetype playerArchetype, int seed)
         {
             archetype = playerArchetype;
+            this.seed = seed;
             CreateVoxelVisual();
         }
 
@@ -119,7 +131,7 @@ namespace CubeWorld.Player
             visualRoot.transform.localPosition = Vector3.zero;
 
             MeshFilter meshFilter = visualRoot.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = PlayerVoxelModelBuilder.Build(_visualHeight, archetype);
+            meshFilter.sharedMesh = PlayerVoxelModelBuilder.Build(_visualHeight, archetype, seed, _debugExpression);
 
             Shader shader = Shader.Find("CubeWorld/VoxelTerrain");
             if (shader == null)

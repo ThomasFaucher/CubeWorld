@@ -6,5 +6,7 @@ namespace CubeWorld.Player.VoxelModels
         Column,
         Sphere,
         Dome,
+        ConeUp,
+        ConeDown,
     }
 }

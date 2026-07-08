@@ -9,8 +9,11 @@ namespace CubeWorld.World
     /// Rebake un NavMeshSurface borné autour de la cible du monde (le joueur),
     /// à mesure que les chunks streament. Débouncé pour ne pas rebaker à chaque
     /// chunk : attend une accalmie dans les changements avant de baker, avec un
-    /// intervalle minimum entre deux bakes. Les ennemis ne doivent exister que
-    /// dans la zone ainsi bakée (voir Combat.EnemySpawner).
+    /// intervalle minimum entre deux bakes. Le bake lui-même est asynchrone
+    /// (UpdateNavMesh, calculé sur les threads de fond) : l'ancien BuildNavMesh
+    /// synchrone gelait la frame à chaque rebake, ce qui se ressentait comme un
+    /// à-coup périodique de chargement. Les ennemis ne doivent exister que dans
+    /// la zone ainsi bakée (voir Combat.EnemySpawner).
     /// </summary>
     public sealed class NavMeshRegionBaker : MonoBehaviour
     {
@@ -33,6 +36,9 @@ namespace CubeWorld.World
         private float _minRebakeInterval = 2f;
 
         private NavMeshSurface surface;
+        private NavMeshData navMeshData;
+        private AsyncOperation bakeOperation;
+        private Vector3 bakeCenterInFlight;
         private bool dirty;
         private bool hasBaked;
         private float lastRelevantChangeTime;
@@ -64,6 +70,8 @@ namespace CubeWorld.World
 
         private void Update()
         {
+            FinalizeBakeIfDone();
+
             Transform target = _worldBootstrap != null ? _worldBootstrap.ViewTarget : null;
             if (target == null)
             {
@@ -82,7 +90,9 @@ namespace CubeWorld.World
                 MarkDirty();
             }
 
-            if (!dirty)
+            // Un seul bake en vol à la fois : les changements arrivés entre-temps
+            // restent marqués dirty et déclencheront le bake suivant.
+            if (!dirty || bakeOperation != null)
             {
                 return;
             }
@@ -93,6 +103,24 @@ namespace CubeWorld.World
             {
                 Bake(target.position);
             }
+        }
+
+        // Le bake asynchrone vient de finir : publie l'event et enregistre l'état,
+        // exactement ce que faisait la fin de l'ancien Bake() synchrone.
+        private void FinalizeBakeIfDone()
+        {
+            if (bakeOperation == null || !bakeOperation.isDone)
+            {
+                return;
+            }
+
+            bakeOperation = null;
+            hasBaked = true;
+            lastBakeCenter = bakeCenterInFlight;
+            version++;
+
+            Bounds bounds = ComputeBounds(lastBakeCenter);
+            EventBus.Publish(new NavMeshBakedEvent(bounds.center, bounds.size, version));
         }
 
         private void OnChunkMeshMaterialized(ChunkMeshMaterializedEvent evt)
@@ -128,20 +156,27 @@ namespace CubeWorld.World
             dirty = true;
         }
 
+        // Lance le calcul du NavMesh sur les threads de fond (la collecte des
+        // colliders reste sur le thread principal, mais c'est la partie rapide).
+        // La finalisation (event, état) se fait dans FinalizeBakeIfDone.
         private void Bake(Vector3 center)
         {
             Bounds bounds = ComputeBounds(center);
             surface.transform.position = bounds.center;
             surface.size = bounds.size;
-            surface.BuildNavMesh();
 
+            if (navMeshData == null)
+            {
+                navMeshData = new NavMeshData();
+                surface.navMeshData = navMeshData;
+                surface.AddData();
+            }
+
+            bakeOperation = surface.UpdateNavMesh(navMeshData);
+            bakeCenterInFlight = center;
             dirty = false;
-            hasBaked = true;
-            lastBakeCenter = center;
+            // Compté depuis le début du bake : throttle aussi le démarrage du suivant.
             lastBakeTime = Time.time;
-            version++;
-
-            EventBus.Publish(new NavMeshBakedEvent(bounds.center, bounds.size, version));
         }
 
         // Volume borné, avec une marge d'un chunk sous la distance de vue, pour

@@ -40,6 +40,22 @@ namespace CubeWorld.World
         public NativeList<Color32> WaterColors;
         public NativeList<int> WaterTriangles;
 
+        // Touffes d'herbe : petits cubes posés au-dessus des voxels Grass dont la
+        // face du dessus est exposée à l'air. Mesh à part (pas de collider dessus,
+        // voir WorldBootstrap) : seul le meshing sait quelles faces sont exposées,
+        // donc c'est ici (et pas à la génération) que l'éligibilité se décide.
+        public NativeList<float3> FoliageVertices;
+        public NativeList<float3> FoliageNormals;
+        public NativeList<Color32> FoliageColors;
+        public NativeList<int> FoliageTriangles;
+
+        public float GrassTuftDensity;
+        public float GrassTuftMinSize;
+        public float GrassTuftMaxSize;
+
+        // Index de la face "dessus" dans GetFaceDirection/GetFaceCornerIndex.
+        private const int TopFaceIndex = 2;
+
         public void Execute()
         {
             for (int x = 0; x < Size; x++)
@@ -64,6 +80,7 @@ namespace CubeWorld.World
         {
             Color32 color = VoxelPalette.GetColor(voxel.Type, Origin + local);
             bool isWater = voxel.Type == VoxelType.Water;
+            bool topExposed = false;
 
             for (int face = 0; face < 6; face++)
             {
@@ -72,7 +89,18 @@ namespace CubeWorld.World
                 if (IsFaceVisible(isWater, SampleVoxel(neighborLocal)))
                 {
                     AddFace(local, face, color, isWater);
+                    topExposed |= face == TopFaceIndex;
                 }
+            }
+
+            // L'herbe ne pousse que là où un voxel Grass est réellement à l'air
+            // libre — un Grass enterré (rare, mais possible aux coutures) n'en
+            // porte pas. VoxelType.Grass n'existe déjà que sur les biomes
+            // Forêt/Plaines (voir TerrainShape.CreateVoxel), donc aucune
+            // vérification de biome n'est nécessaire ici.
+            if (topExposed && voxel.Type == VoxelType.Grass)
+            {
+                TryAddGrassTuft(local);
             }
         }
 
@@ -158,6 +186,104 @@ namespace CubeWorld.World
             triangles.Add(baseIndex + 2);
             triangles.Add(baseIndex + 1);
             triangles.Add(baseIndex + 3);
+        }
+
+        // Tirage déterministe (même monde => mêmes touffes) : un voxel Grass sur
+        // GrassTuftDensity porte 3 à 5 brins fins, hauteur/position/teinte
+        // dérivées du même hash avec des sels différents.
+        private void TryAddGrassTuft(int3 local)
+        {
+            int3 worldPos = Origin + local;
+
+            if (HashToUnit(worldPos, 0) >= GrassTuftDensity)
+            {
+                return;
+            }
+
+            int tuftCount = 3 + (int)(HashToUnit(worldPos, 1) * 3f);
+            for (int i = 0; i < tuftCount; i++)
+            {
+                AddGrassBlade(local, worldPos, i);
+            }
+        }
+
+        // Un brin = une boîte fine et haute (pas un cube : des cubes flottants
+        // ressemblent à des débris, des brins élancés ressemblent à de l'herbe),
+        // posée sur la face supérieure du voxel porteur.
+        private void AddGrassBlade(int3 local, int3 worldPos, int index)
+        {
+            int salt = index * 4;
+            float height = math.lerp(GrassTuftMinSize, GrassTuftMaxSize, HashToUnit(worldPos, 10 + salt));
+            float width = 0.10f + (HashToUnit(worldPos, 13 + salt) * 0.08f);
+
+            // Décalage horizontal borné pour que le brin reste dans l'empreinte
+            // du voxel porteur (évite qu'il déborde visiblement sur un voxel
+            // voisin qui pourrait être de l'air).
+            float maxOffset = (1f - width) * 0.5f;
+            float offsetX = ((HashToUnit(worldPos, 11 + salt) * 2f) - 1f) * maxOffset;
+            float offsetZ = ((HashToUnit(worldPos, 12 + salt) * 2f) - 1f) * maxOffset;
+
+            var center = (float3)local + new float3(0.5f + offsetX, 1f + (height * 0.5f), 0.5f + offsetZ);
+            Color32 color = GrassTuftColor(worldPos, index);
+
+            AddFoliageBox(center, new float3(width * 0.5f, height * 0.5f, width * 0.5f), color);
+        }
+
+        // Boîte autonome dans le mesh Foliage, en réutilisant les mêmes tables
+        // de coins/faces que AddFace. La face du dessous est omise : posée sur
+        // le sol, elle n'est jamais visible (5 faces au lieu de 6 par brin).
+        private void AddFoliageBox(float3 centerLocal, float3 halfExtents, Color32 color)
+        {
+            for (int face = 0; face < 6; face++)
+            {
+                if (face == 3)
+                {
+                    continue; // dessous
+                }
+
+                int baseIndex = FoliageVertices.Length;
+                float3 normal = GetFaceDirection(face);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    float3 corner = ((GetCorner(GetFaceCornerIndex(face, i)) - 0.5f) * (halfExtents * 2f)) + centerLocal;
+                    FoliageVertices.Add(corner);
+                    FoliageNormals.Add(normal);
+                    FoliageColors.Add(color);
+                }
+
+                FoliageTriangles.Add(baseIndex + 0);
+                FoliageTriangles.Add(baseIndex + 1);
+                FoliageTriangles.Add(baseIndex + 2);
+                FoliageTriangles.Add(baseIndex + 2);
+                FoliageTriangles.Add(baseIndex + 1);
+                FoliageTriangles.Add(baseIndex + 3);
+            }
+        }
+
+        // Vert un peu plus soutenu que le sol (voir VoxelPalette.Grass) pour que
+        // les brins se détachent visuellement, avec une variation par brin plus
+        // marquée que celle du terrain (une touffe vivante n'est pas uniforme).
+        private static Color32 GrassTuftColor(int3 worldPos, int index)
+        {
+            var baseColor = new Color32(58, 178, 50, 255);
+            float factor = 1f + (((HashToUnit(worldPos, 20 + index) * 2f) - 1f) * 0.15f);
+
+            return new Color32(
+                (byte)math.clamp((int)(baseColor.r * factor), 0, 255),
+                (byte)math.clamp((int)(baseColor.g * factor), 0, 255),
+                (byte)math.clamp((int)(baseColor.b * factor), 0, 255),
+                255
+            );
+        }
+
+        // Hash déterministe [0, 1) dérivé de la position monde + d'un sel (pour
+        // tirer plusieurs valeurs indépendantes à la même position sans les
+        // corréler) — même principe que VoxelPalette.Vary, gardé local au job.
+        private static float HashToUnit(int3 position, int salt)
+        {
+            uint hash = math.hash(new int4(position, salt));
+            return (hash & 0x00FFFFFFu) / (float)0x01000000u;
         }
 
         private int ToIndex(int x, int y, int z)

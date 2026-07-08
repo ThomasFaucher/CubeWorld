@@ -11,10 +11,18 @@ namespace CubeWorld.World
     /// cours d'écriture. Produit deux meshes séparés : <paramref name="opaqueOutput"/>
     /// (terrain, matériau opaque) et <paramref name="waterOutput"/> (matériau
     /// transparent), car ils nécessitent des passes de rendu différentes.
+    /// Produit aussi <paramref name="foliageOutput"/> (touffes d'herbe, mesh à
+    /// part sans collider — voir <see cref="VegetationConfig"/>).
     /// </summary>
     public static class ChunkMeshBuilder
     {
-        public static JobHandle ScheduleBuild(Chunk chunk, VoxelWorld world, ChunkMeshData opaqueOutput, ChunkMeshData waterOutput)
+        public static JobHandle ScheduleBuild(
+            Chunk chunk,
+            VoxelWorld world,
+            ChunkMeshData opaqueOutput,
+            ChunkMeshData waterOutput,
+            ChunkMeshData foliageOutput,
+            VegetationConfig vegetationConfig)
         {
             int3 coord = chunk.Coord;
 
@@ -37,6 +45,13 @@ namespace CubeWorld.World
                 WaterNormals = waterOutput.Normals,
                 WaterColors = waterOutput.Colors,
                 WaterTriangles = waterOutput.Triangles,
+                FoliageVertices = foliageOutput.Vertices,
+                FoliageNormals = foliageOutput.Normals,
+                FoliageColors = foliageOutput.Colors,
+                FoliageTriangles = foliageOutput.Triangles,
+                GrassTuftDensity = vegetationConfig.GrassTuftDensity,
+                GrassTuftMinSize = vegetationConfig.GrassTuftMinSize,
+                GrassTuftMaxSize = vegetationConfig.GrassTuftMaxSize,
             };
 
             JobHandle dependency = JobHandle.CombineDependencies(

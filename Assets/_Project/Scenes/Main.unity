@@ -151,8 +151,10 @@ MonoBehaviour:
   _config: {fileID: 11400000, guid: d3e19c3340cd8a258bc96770a1a153c2, type: 2}
   _terrainMaterial: {fileID: 2100000, guid: a0ce8e09cd5be219b95c7d54e0cf408c, type: 2}
   _waterMaterial: {fileID: 0}
+  _vegetationConfig: {fileID: 0}
   _viewTarget: {fileID: 0}
   _columnsPerFrame: 2
+  _meshesPerFrame: 4
   _placeTargetAboveTerrain: 1
 --- !u!4 &41776635
 Transform:
@@ -2701,7 +2703,9 @@ MonoBehaviour:
   _worldBootstrap: {fileID: 41776634}
   _inputActions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   _startingWeaponItem: {fileID: 11400000, guid: 9166d4494884f764cae0899cda69eaad, type: 2}
-  _playerArchetype: 1
+  _playerArchetype: 0
+  _characterSeed: 0
+  _randomizeSeedOnSpawn: 1
   _cameraDistance: 6
   _lookSensitivity: 0.09
 --- !u!4 &1292449313
@@ -2870,6 +2874,52 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0, y: 0}
+--- !u!1 &1404497687
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1404497689}
+  - component: {fileID: 1404497688}
+  m_Layer: 0
+  m_Name: CloudSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1404497688
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1404497687}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b009919a8765254ea6ab105c0f7229b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CubeWorld.World::CubeWorld.World.CloudSystem
+  _worldBootstrap: {fileID: 41776634}
+  _config: {fileID: 11400000, guid: 364c021934c230f41acf17f47d7ce434, type: 2}
+--- !u!4 &1404497689
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1404497687}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 935.3158, y: 110.14429, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1427259854
 GameObject:
   m_ObjectHideFlags: 0
@@ -2949,6 +2999,54 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1427259854}
   m_CullTransparentMesh: 1
+--- !u!1 &1440982169
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1440982170}
+  - component: {fileID: 1440982171}
+  m_Layer: 0
+  m_Name: VegetationSpawner
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1440982170
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1440982169}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1440982171
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1440982169}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 797836968b8ca224f8f81d2c0b561071, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CubeWorld.World::CubeWorld.World.VegetationSpawner
+  _worldBootstrap: {fileID: 41776634}
+  _config: {fileID: 11400000, guid: d3e19c3340cd8a258bc96770a1a153c2, type: 2}
+  _vegetationConfig: {fileID: 11400000, guid: b8609d74330641b4b926065170f52f3a, type: 2}
+  _spawnExclusionRadius: 2
 --- !u!1 &1450390254
 GameObject:
   m_ObjectHideFlags: 0
@@ -3961,9 +4059,11 @@ SceneRoots:
   - {fileID: 410087041}
   - {fileID: 832575519}
   - {fileID: 41776635}
-  - {fileID: 1292449313}
   - {fileID: 318872880}
+  - {fileID: 1440982170}
+  - {fileID: 1292449313}
   - {fileID: 1347571526}
   - {fileID: 1381521327}
   - {fileID: 2014447055}
   - {fileID: 1784078374}
+  - {fileID: 1404497689}

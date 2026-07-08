@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 770e7cf499504624bbff33502f9b6f43, type: 3}
+  m_Name: CloudConfig
+  m_EditorClassIdentifier: CubeWorld.World::CubeWorld.World.CloudConfig
+  _cloudCount: 24
+  _cloudVariantCount: 4
+  _cloudUnit: 1.5
+  _windDirection: {x: 1, y: 0.3}
+  _windSpeed: 1.5
+  _altitudeMin: 70
+  _altitudeMax: 90
+  _recycleRadius: 140

@@ -40,22 +40,32 @@ namespace CubeWorld.World
         /// <summary>Choisit le voxel à cette hauteur monde selon la hauteur de surface locale et le biome.</summary>
         public static Voxel CreateVoxel(int worldY, int surfaceHeight, int seaLevel, int snowHeight, int dirtDepth, BiomeType biome)
         {
-            // Au-dessus de la surface : de l'eau jusqu'au niveau de la mer, sinon de l'air.
+            // Au-dessus de la surface : de l'eau jusqu'au niveau de la mer (gelée en
+            // biome Neige — un lac n'a pas de raison d'être liquide sous la neige),
+            // sinon de l'air.
             if (worldY > surfaceHeight)
             {
-                return worldY <= seaLevel
-                    ? new Voxel(VoxelType.Water)
-                    : Voxel.Air;
+                if (worldY <= seaLevel)
+                {
+                    return biome == BiomeType.Snow
+                        ? new Voxel(VoxelType.Ice)
+                        : new Voxel(VoxelType.Water);
+                }
+
+                return Voxel.Air;
             }
 
-            // Voxel de surface : sable près de l'eau (tous biomes, une côte reste une
-            // côte), sinon le biome remplace la règle de hauteur (Désert/Neige) ou la
-            // laisse telle quelle (Forêt/Plaines : neige en altitude, herbe sinon).
+            // Voxel de surface : sable près de l'eau (Désert/Forêt/Plaines — une côte
+            // reste une côte), neige près de l'eau en biome Neige (pas de plage
+            // sous la neige), sinon le biome remplace la règle de hauteur (Désert)
+            // ou la laisse telle quelle (Forêt/Plaines : neige en altitude, herbe sinon).
             if (worldY == surfaceHeight)
             {
                 if (worldY <= seaLevel + 1)
                 {
-                    return new Voxel(VoxelType.Sand);
+                    return biome == BiomeType.Snow
+                        ? new Voxel(VoxelType.Snow)
+                        : new Voxel(VoxelType.Sand);
                 }
 
                 return biome switch

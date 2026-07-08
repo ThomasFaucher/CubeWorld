@@ -31,6 +31,27 @@ namespace CubeWorld.World
 
         public Mesh ToMesh()
         {
+            Mesh mesh = CreateMesh();
+            mesh.RecalculateBounds();
+
+            return mesh;
+        }
+
+        /// <summary>
+        /// Variante avec des bornes connues d'avance (ex. les limites d'un chunk) :
+        /// évite le parcours de tous les sommets de RecalculateBounds sur le
+        /// thread principal, à chaque matérialisation de chunk.
+        /// </summary>
+        public Mesh ToMesh(Bounds bounds)
+        {
+            Mesh mesh = CreateMesh();
+            mesh.bounds = bounds;
+
+            return mesh;
+        }
+
+        private Mesh CreateMesh()
+        {
             var mesh = new Mesh
             {
                 // Un chunk 32³ très découpé peut dépasser 65 535 sommets.
@@ -41,7 +62,6 @@ namespace CubeWorld.World
             mesh.SetNormals(Normals.AsArray());
             mesh.SetColors(Colors.AsArray());
             mesh.SetIndices(Triangles.AsArray(), MeshTopology.Triangles, 0);
-            mesh.RecalculateBounds();
 
             return mesh;
         }

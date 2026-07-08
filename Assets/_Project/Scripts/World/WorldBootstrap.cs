@@ -25,6 +25,9 @@ namespace CubeWorld.World
         [Tooltip("Matériau de l'eau (transparent). Si vide, un matériau CubeWorld/VoxelWater est créé.")]
         [SerializeField] private Material _waterMaterial;
 
+        [Tooltip("Configuration de la végétation (touffes d'herbe...). Si vide, des valeurs par défaut sont utilisées.")]
+        [SerializeField] private VegetationConfig _vegetationConfig;
+
         [Tooltip("Le monde se génère autour de cette cible. Si vide : la caméra principale.")]
         [SerializeField] private Transform _viewTarget;
 
@@ -32,12 +35,16 @@ namespace CubeWorld.World
         [Tooltip("Colonnes de chunks générées par frame. Plus haut = remplissage plus rapide mais frames plus lourdes.")]
         [SerializeField] private int _columnsPerFrame = 2;
 
+        [Tooltip("Meshes de chunks matérialisés par frame (les plus proches d'abord). Lisse le coût de création des meshes sur plusieurs frames au lieu d'un pic.")]
+        [SerializeField] private int _meshesPerFrame = 4;
+
         [Tooltip("Place la cible au-dessus du terrain au démarrage.")]
         [SerializeField] private bool _placeTargetAboveTerrain = true;
 
         private WorldConfig config;
         private Material terrainMaterial;
         private Material waterMaterial;
+        private VegetationConfig vegetationConfig;
         private VoxelWorld world;
         private ChunkStreamer streamer;
         private readonly Dictionary<int3, ChunkVisual> chunkVisuals = new();
@@ -46,13 +53,28 @@ namespace CubeWorld.World
         private readonly Dictionary<int3, PendingMesh> pendingMeshes = new();
         private readonly List<int3> completedMeshBuffer = new();
 
+        // Cuissons de MeshCollider en cours sur les threads de fond (voir MaterializeChunk).
+        private readonly Dictionary<int3, PendingColliderBake> pendingColliderBakes = new();
+        private readonly List<int3> completedBakeBuffer = new();
+
+        // Bornes locales d'un mesh de chunk, connues d'avance (0..ChunkSize, avec une
+        // marge verticale pour les brins d'herbe qui dépassent du voxel du dessus) :
+        // évite le RecalculateBounds par mesh sur le thread principal.
+        private Bounds chunkLocalBounds;
+
         private void Awake()
         {
             config = _config != null ? _config : ScriptableObject.CreateInstance<WorldConfig>();
             terrainMaterial = _terrainMaterial != null ? _terrainMaterial : CreateDefaultMaterial("CubeWorld/VoxelTerrain");
             waterMaterial = _waterMaterial != null ? _waterMaterial : CreateDefaultMaterial("CubeWorld/VoxelWater");
+            vegetationConfig = _vegetationConfig != null ? _vegetationConfig : ScriptableObject.CreateInstance<VegetationConfig>();
             world = new VoxelWorld(config);
             streamer = new ChunkStreamer(world, config);
+
+            float half = config.ChunkSize * 0.5f;
+            chunkLocalBounds = new Bounds(
+                new Vector3(half, half + 1f, half),
+                new Vector3(config.ChunkSize, config.ChunkSize + 4f, config.ChunkSize));
         }
 
         private void Start()
@@ -66,6 +88,7 @@ namespace CubeWorld.World
 
         private void Update()
         {
+            CompleteColliderBakes();
             CompletePendingMeshes();
 
             if (ViewTarget is not { } target)
@@ -86,12 +109,23 @@ namespace CubeWorld.World
                 pending.Handle.Complete();
                 pending.Opaque.Dispose();
                 pending.Water.Dispose();
+                pending.Foliage.Dispose();
             }
 
             pendingMeshes.Clear();
 
+            foreach (PendingColliderBake bake in pendingColliderBakes.Values)
+            {
+                bake.Handle.Complete();
+            }
+
+            pendingColliderBakes.Clear();
+
             world?.Dispose();
         }
+
+        /// <summary>Le monde métier (voxels, biomes...). Public pour VegetationSpawner.</summary>
+        public VoxelWorld World => world;
 
         /// <summary>Cible autour de laquelle le monde streame (voir SetViewTarget). Public pour NavMeshRegionBaker.</summary>
         public Transform ViewTarget
@@ -146,19 +180,24 @@ namespace CubeWorld.World
                 stale.Handle.Complete();
                 stale.Opaque.Dispose();
                 stale.Water.Dispose();
+                stale.Foliage.Dispose();
             }
 
             var opaqueData = new ChunkMeshData(Allocator.Persistent);
             var waterData = new ChunkMeshData(Allocator.Persistent);
-            JobHandle handle = ChunkMeshBuilder.ScheduleBuild(chunk, world, opaqueData, waterData);
+            var foliageData = new ChunkMeshData(Allocator.Persistent);
+            JobHandle handle = ChunkMeshBuilder.ScheduleBuild(chunk, world, opaqueData, waterData, foliageData, vegetationConfig);
 
             world.SetMeshHandle(coord, handle);
-            pendingMeshes[coord] = new PendingMesh(chunk, opaqueData, waterData, handle);
+            pendingMeshes[coord] = new PendingMesh(chunk, opaqueData, waterData, foliageData, handle);
         }
 
         // À appeler chaque frame, avant tout traitement pouvant décharger des
-        // chunks : matérialise les jobs de meshing terminés, laisse les autres
-        // en attente pour une frame suivante.
+        // chunks : matérialise les jobs de meshing terminés — au plus
+        // _meshesPerFrame par frame, les plus proches de la cible d'abord (le
+        // sol sous le joueur avant l'horizon), le reste attend les frames
+        // suivantes. Lisse le coût de création des meshes au lieu d'un pic
+        // quand beaucoup de jobs se terminent en même temps.
         private void CompletePendingMeshes()
         {
             if (pendingMeshes.Count == 0)
@@ -175,23 +214,94 @@ namespace CubeWorld.World
                 }
             }
 
-            foreach (int3 coord in completedMeshBuffer)
+            if (completedMeshBuffer.Count == 0)
             {
+                return;
+            }
+
+            Vector3 targetPosition = ViewTarget is { } target ? target.position : Vector3.zero;
+            float chunkWorldSize = config.ChunkSize * config.VoxelSize;
+            completedMeshBuffer.Sort((a, b) =>
+                ChunkDistanceSq(a, targetPosition, chunkWorldSize)
+                    .CompareTo(ChunkDistanceSq(b, targetPosition, chunkWorldSize)));
+
+            int budget = Mathf.Max(1, _meshesPerFrame);
+            for (int i = 0; i < completedMeshBuffer.Count && i < budget; i++)
+            {
+                int3 coord = completedMeshBuffer[i];
                 PendingMesh pending = pendingMeshes[coord];
                 pendingMeshes.Remove(coord);
                 pending.Handle.Complete();
 
-                MaterializeChunk(pending.Chunk, pending.Opaque, pending.Water);
+                MaterializeChunk(pending.Chunk, pending.Opaque, pending.Water, pending.Foliage);
 
                 pending.Opaque.Dispose();
                 pending.Water.Dispose();
+                pending.Foliage.Dispose();
                 world.ClearMeshHandle(coord);
             }
         }
 
-        private void MaterializeChunk(Chunk chunk, ChunkMeshData opaqueData, ChunkMeshData waterData)
+        private static float ChunkDistanceSq(int3 coord, Vector3 targetPosition, float chunkWorldSize)
+        {
+            var center = new Vector3(coord.x + 0.5f, coord.y + 0.5f, coord.z + 0.5f) * chunkWorldSize;
+            return (center - targetPosition).sqrMagnitude;
+        }
+
+        // Assigne aux colliders les meshes dont la cuisson de fond est terminée :
+        // l'assignation réutilise alors les données cuites (quasi gratuite), au
+        // lieu de cuire en synchrone sur le thread principal.
+        private void CompleteColliderBakes()
+        {
+            if (pendingColliderBakes.Count == 0)
+            {
+                return;
+            }
+
+            completedBakeBuffer.Clear();
+            foreach (KeyValuePair<int3, PendingColliderBake> pair in pendingColliderBakes)
+            {
+                if (pair.Value.Handle.IsCompleted)
+                {
+                    completedBakeBuffer.Add(pair.Key);
+                }
+            }
+
+            foreach (int3 coord in completedBakeBuffer)
+            {
+                PendingColliderBake bake = pendingColliderBakes[coord];
+                pendingColliderBakes.Remove(coord);
+                bake.Handle.Complete();
+
+                // Le visual a pu être détruit entre-temps (déchargement pendant la
+                // cuisson) : dans ce cas le mesh a déjà été détruit avec lui.
+                if (bake.Collider != null)
+                {
+                    bake.Collider.sharedMesh = bake.Mesh;
+                }
+
+                if (bake.PreviousMesh != null)
+                {
+                    Destroy(bake.PreviousMesh);
+                }
+            }
+        }
+
+        private void MaterializeChunk(Chunk chunk, ChunkMeshData opaqueData, ChunkMeshData waterData, ChunkMeshData foliageData)
         {
             bool hasVisual = chunkVisuals.TryGetValue(chunk.Coord, out ChunkVisual visual);
+
+            // Un bake de collider peut être en cours pour ce chunk (remesh rapproché,
+            // ou chunk devenu vide) : son résultat est obsolète, on le termine et on
+            // libère l'ancien mesh qu'il retenait.
+            if (pendingColliderBakes.Remove(chunk.Coord, out PendingColliderBake staleBake))
+            {
+                staleBake.Handle.Complete();
+                if (staleBake.PreviousMesh != null)
+                {
+                    Destroy(staleBake.PreviousMesh);
+                }
+            }
 
             if (opaqueData.IsEmpty && waterData.IsEmpty)
             {
@@ -210,15 +320,44 @@ namespace CubeWorld.World
                 chunkVisuals[chunk.Coord] = visual;
             }
 
-            Mesh opaqueMesh = opaqueData.IsEmpty ? null : opaqueData.ToMesh();
-            ApplyMesh(visual.OpaqueFilter, opaqueMesh);
-            // Collision physique : même mesh que le rendu (l'eau n'a pas de
-            // collider, elle n'est pas solide — voir Voxel.IsSolid).
-            visual.OpaqueCollider.sharedMesh = opaqueMesh;
+            // Le rendu est mis à jour immédiatement ; la collision (même mesh) suit
+            // un ou deux frames plus tard, une fois la cuisson terminée en fond —
+            // voir le bake plus bas. L'ancien mesh reste vivant (et assigné au
+            // collider) jusque-là : jamais de trou de collision pendant un remesh.
+            Mesh opaqueMesh = opaqueData.IsEmpty ? null : opaqueData.ToMesh(chunkLocalBounds);
+            Mesh previousOpaqueMesh = visual.OpaqueFilter.sharedMesh;
+            visual.OpaqueFilter.sharedMesh = opaqueMesh;
+
+            if (opaqueMesh == null)
+            {
+                visual.OpaqueCollider.sharedMesh = null;
+                if (previousOpaqueMesh != null)
+                {
+                    Destroy(previousOpaqueMesh);
+                }
+            }
+            else
+            {
+                // Cuisson du MeshCollider hors du thread principal (Physics.BakeMesh
+                // est thread-safe) : l'assignation du collider, dans
+                // CompleteColliderBakes, réutilisera les données déjà cuites au lieu
+                // de cuire en bloquant la frame — c'était le principal coût de
+                // matérialisation d'un chunk. L'eau n'a pas de collider (pas solide,
+                // voir Voxel.IsSolid).
+                JobHandle bakeHandle = new ColliderBakeJob { MeshId = opaqueMesh.GetEntityId() }.Schedule();
+                pendingColliderBakes[chunk.Coord] =
+                    new PendingColliderBake(visual.OpaqueCollider, opaqueMesh, previousOpaqueMesh, bakeHandle);
+            }
 
             bool hasWater = !waterData.IsEmpty;
             visual.WaterObject.SetActive(hasWater);
-            ApplyMesh(visual.WaterFilter, hasWater ? waterData.ToMesh() : null);
+            ApplyMesh(visual.WaterFilter, hasWater ? waterData.ToMesh(chunkLocalBounds) : null);
+
+            // Les touffes n'ont pas de collider (voir CreateChunkVisual) : le
+            // joueur ne doit jamais trébucher sur de l'herbe décorative.
+            bool hasFoliage = !foliageData.IsEmpty;
+            visual.FoliageObject.SetActive(hasFoliage);
+            ApplyMesh(visual.FoliageFilter, hasFoliage ? foliageData.ToMesh(chunkLocalBounds) : null);
 
             // Signale qu'un collider de terrain vient de (re)paraître : NavMeshRegionBaker
             // s'en sert pour savoir quand rebaker.
@@ -247,7 +386,15 @@ namespace CubeWorld.World
             waterObject.AddComponent<MeshRenderer>().sharedMaterial = waterMaterial;
             waterObject.SetActive(false);
 
-            return new ChunkVisual(root, opaqueFilter, opaqueCollider, waterObject, waterFilter);
+            // Pas de MeshCollider : les touffes d'herbe sont purement décoratives,
+            // le joueur ne doit jamais buter dessus.
+            var foliageObject = new GameObject("Foliage");
+            foliageObject.transform.SetParent(root.transform, false);
+            var foliageFilter = foliageObject.AddComponent<MeshFilter>();
+            foliageObject.AddComponent<MeshRenderer>().sharedMaterial = terrainMaterial;
+            foliageObject.SetActive(false);
+
+            return new ChunkVisual(root, opaqueFilter, opaqueCollider, waterObject, waterFilter, foliageObject, foliageFilter);
         }
 
         // Remplace le mesh d'un MeshFilter, en détruisant l'ancien (asset runtime).
@@ -273,6 +420,19 @@ namespace CubeWorld.World
                 pending.Handle.Complete();
                 pending.Opaque.Dispose();
                 pending.Water.Dispose();
+                pending.Foliage.Dispose();
+            }
+
+            // Un bake de collider encore en vol pour ce chunk devient inutile : on
+            // le termine et on libère l'ancien mesh qu'il retenait (le nouveau est
+            // détruit juste en dessous, via le MeshFilter du visual).
+            if (pendingColliderBakes.Remove(coord, out PendingColliderBake bake))
+            {
+                bake.Handle.Complete();
+                if (bake.PreviousMesh != null)
+                {
+                    Destroy(bake.PreviousMesh);
+                }
             }
 
             if (chunkVisuals.Remove(coord, out ChunkVisual visual))
@@ -298,6 +458,12 @@ namespace CubeWorld.World
                 Destroy(waterMesh);
             }
 
+            Mesh foliageMesh = visual.FoliageFilter.sharedMesh;
+            if (foliageMesh != null)
+            {
+                Destroy(foliageMesh);
+            }
+
             Destroy(visual.Root);
         }
 
@@ -314,7 +480,8 @@ namespace CubeWorld.World
         }
 
         // Représentation scène d'un chunk : un GameObject racine pour le terrain
-        // opaque, avec un enfant dédié à l'eau (matériau transparent séparé).
+        // opaque, avec un enfant dédié à l'eau (matériau transparent séparé) et un
+        // enfant dédié aux touffes d'herbe (mesh à part, sans collider).
         private readonly struct ChunkVisual
         {
             public readonly GameObject Root;
@@ -322,14 +489,25 @@ namespace CubeWorld.World
             public readonly MeshCollider OpaqueCollider;
             public readonly GameObject WaterObject;
             public readonly MeshFilter WaterFilter;
+            public readonly GameObject FoliageObject;
+            public readonly MeshFilter FoliageFilter;
 
-            public ChunkVisual(GameObject root, MeshFilter opaqueFilter, MeshCollider opaqueCollider, GameObject waterObject, MeshFilter waterFilter)
+            public ChunkVisual(
+                GameObject root,
+                MeshFilter opaqueFilter,
+                MeshCollider opaqueCollider,
+                GameObject waterObject,
+                MeshFilter waterFilter,
+                GameObject foliageObject,
+                MeshFilter foliageFilter)
             {
                 Root = root;
                 OpaqueFilter = opaqueFilter;
                 OpaqueCollider = opaqueCollider;
                 WaterObject = waterObject;
                 WaterFilter = waterFilter;
+                FoliageObject = foliageObject;
+                FoliageFilter = foliageFilter;
             }
         }
 
@@ -338,13 +516,46 @@ namespace CubeWorld.World
             public readonly Chunk Chunk;
             public readonly ChunkMeshData Opaque;
             public readonly ChunkMeshData Water;
+            public readonly ChunkMeshData Foliage;
             public readonly JobHandle Handle;
 
-            public PendingMesh(Chunk chunk, ChunkMeshData opaque, ChunkMeshData water, JobHandle handle)
+            public PendingMesh(Chunk chunk, ChunkMeshData opaque, ChunkMeshData water, ChunkMeshData foliage, JobHandle handle)
             {
                 Chunk = chunk;
                 Opaque = opaque;
                 Water = water;
+                Foliage = foliage;
+                Handle = handle;
+            }
+        }
+
+        // Cuisson d'un mesh de collision sur un thread de fond. Pas de Burst :
+        // Physics.BakeMesh est un appel moteur (thread-safe), pas du code compilable.
+        private struct ColliderBakeJob : IJob
+        {
+            public EntityId MeshId;
+
+            public void Execute()
+            {
+                Physics.BakeMesh(MeshId, false);
+            }
+        }
+
+        // Mesh cuit en fond, en attente d'assignation à son collider. PreviousMesh
+        // est l'ancien mesh, gardé vivant (et toujours assigné au collider) jusqu'à
+        // la fin de la cuisson pour ne jamais laisser un trou de collision.
+        private readonly struct PendingColliderBake
+        {
+            public readonly MeshCollider Collider;
+            public readonly Mesh Mesh;
+            public readonly Mesh PreviousMesh;
+            public readonly JobHandle Handle;
+
+            public PendingColliderBake(MeshCollider collider, Mesh mesh, Mesh previousMesh, JobHandle handle)
+            {
+                Collider = collider;
+                Mesh = mesh;
+                PreviousMesh = previousMesh;
                 Handle = handle;
             }
         }

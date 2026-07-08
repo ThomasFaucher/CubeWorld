@@ -22,26 +22,30 @@ namespace CubeWorld.Player.VoxelModels
             bool hairOnTop = true
         )
         {
-            if (hairOnTop && y >= headSize - 3)
+            if (hairOnTop && y >= HairTopY(headSize))
             {
                 return hair;
             }
 
             float cx = (headSize - 1) / 2f;
             int frontZ = headSize - 1;
+            int eyeY = EyeY(headSize);
+            float eyeOffsetX = EyeOffsetX(headSize);
+            float blushOffsetX = BlushOffsetX(headSize);
+            float mouthHalfWidth = headSize * 0.11f;
 
             if (z >= frontZ - 1)
             {
-                if (y == 3)
+                if (y == eyeY)
                 {
-                    if (Mathf.Abs(x - (cx - 2f)) < 0.75f || Mathf.Abs(x - (cx + 2f)) < 0.75f)
+                    if (Mathf.Abs(x - (cx - eyeOffsetX)) < 0.75f || Mathf.Abs(x - (cx + eyeOffsetX)) < 0.75f)
                     {
-                        if (z == frontZ && Mathf.Abs(x - (cx - 2f)) < 0.35f)
+                        if (z == frontZ && Mathf.Abs(x - (cx - eyeOffsetX)) < 0.35f)
                         {
                             return Pupil;
                         }
 
-                        if (z == frontZ && Mathf.Abs(x - (cx + 2f)) < 0.35f)
+                        if (z == frontZ && Mathf.Abs(x - (cx + eyeOffsetX)) < 0.35f)
                         {
                             return Pupil;
                         }
@@ -50,12 +54,14 @@ namespace CubeWorld.Player.VoxelModels
                     }
                 }
 
-                if (y == 2 && z == frontZ - 1 && (Mathf.Abs(x - (cx - 3f)) < 0.5f || Mathf.Abs(x - (cx + 3f)) < 0.5f))
+                if (y == eyeY - 1
+                    && z == frontZ - 1
+                    && (Mathf.Abs(x - (cx - blushOffsetX)) < 0.5f || Mathf.Abs(x - (cx + blushOffsetX)) < 0.5f))
                 {
                     return Blush;
                 }
 
-                if (y == 1 && z == frontZ && Mathf.Abs(x - cx) < 1.1f)
+                if (y == eyeY - 2 && z == frontZ && Mathf.Abs(x - cx) < mouthHalfWidth)
                 {
                     return Mouth;
                 }
@@ -73,12 +79,24 @@ namespace CubeWorld.Player.VoxelModels
         )
         {
             float cx = (headSize - 1) / 2f;
-            int y = headOrigin.y + 3;
+            float eyeOffsetX = EyeOffsetX(headSize);
+            int y = headOrigin.y + EyeY(headSize);
             int z = headOrigin.z + headSize - 1;
 
-            AddDot(mesh, new Vector3Int(Mathf.RoundToInt(headOrigin.x + cx - 2f + 0.5f), y + 1, z), EyeWhite, unit, ref seed);
-            AddDot(mesh, new Vector3Int(Mathf.RoundToInt(headOrigin.x + cx + 2f + 0.5f), y + 1, z), EyeWhite, unit, ref seed);
+            AddDot(mesh, new Vector3Int(Mathf.RoundToInt(headOrigin.x + cx - eyeOffsetX + 0.5f), y + 1, z), EyeWhite, unit, ref seed);
+            AddDot(mesh, new Vector3Int(Mathf.RoundToInt(headOrigin.x + cx + eyeOffsetX + 0.5f), y + 1, z), EyeWhite, unit, ref seed);
         }
+
+        // Offsets exprimés en fraction de headSize : reproduisent exactement les
+        // constantes historiques (yeux=2, joues=3, bouche~1.1) pour headSize 10-11,
+        // et restent cohérents pour une tête plus grande (plus de détail).
+        private static int HairTopY(int headSize) => headSize - Mathf.Max(2, Mathf.RoundToInt(headSize * 0.28f));
+
+        private static int EyeY(int headSize) => Mathf.Max(2, Mathf.RoundToInt((headSize - 1) * 0.33f));
+
+        private static float EyeOffsetX(int headSize) => Mathf.Round(headSize * 0.2f);
+
+        private static float BlushOffsetX(int headSize) => Mathf.Round(headSize * 0.3f);
 
         private static void AddDot(
             PlayerVoxelMeshData mesh,

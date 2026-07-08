@@ -15,5 +15,6 @@ namespace CubeWorld.World
         Sand = 4,
         Snow = 5,
         Water = 6,
+        Ice = 7,
     }
 }

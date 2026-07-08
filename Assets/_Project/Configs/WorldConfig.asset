@@ -13,9 +13,11 @@ MonoBehaviour:
   m_Name: WorldConfig
   m_EditorClassIdentifier: 
   _chunkSize: 32
-  _viewDistance: 8
+  _voxelSize: 0.5
+  _viewDistance: 4
   _verticalViewDistance: 4
   _seed: 55
   _noiseScale: 0.008
   _maxTerrainHeight: 96
   _seaLevel: 30
+  _biomeNoiseScale: 0.0015

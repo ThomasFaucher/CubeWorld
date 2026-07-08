@@ -156,6 +156,12 @@ namespace CubeWorld.World
             return generator.SampleHeight(worldX, worldZ);
         }
 
+        /// <summary>Biome en (x, z) monde — utilisé par la végétation pour décider ce qui pousse où.</summary>
+        public BiomeType GetBiome(int worldX, int worldZ)
+        {
+            return generator.SampleBiome(worldX, worldZ);
+        }
+
         /// <summary>Termine tous les jobs en cours et libère tous les chunks (arrêt du monde).</summary>
         public void Dispose()
         {

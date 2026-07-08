@@ -67,7 +67,15 @@ namespace CubeWorld.Player
             orbitalFollow.VerticalAxis.Range = new Vector2(MinPitch, MaxPitch);
             orbitalFollow.VerticalAxis.Wrap = false;
 
-            gameObject.AddComponent<CinemachineRotationComposer>();
+            var rotationComposer = gameObject.AddComponent<CinemachineRotationComposer>();
+
+            // AddComponent() n'appelle pas Reset() (ça, c'est un helper Editor-only
+            // déclenché par l'ajout depuis l'Inspector) : Damping n'a pas d'initialiseur
+            // de champ et reste donc à (0,0) si on ne le fixe pas nous-mêmes, ce qui
+            // vise instantanément la cible chaque frame pendant que la position de la
+            // caméra (OrbitalFollow, elle bien amortie) traîne derrière — d'où le
+            // mouvement de caméra bizarre uniquement quand le joueur se déplace.
+            rotationComposer.Damping = new Vector2(0.5f, 0.5f);
 
             InputActionMap map = inputActions.FindActionMap("Player");
             lookAction = map.FindAction("Look");

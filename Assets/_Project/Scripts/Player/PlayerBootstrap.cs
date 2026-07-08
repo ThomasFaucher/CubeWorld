@@ -31,6 +31,14 @@ namespace CubeWorld.Player
         [SerializeField]
         private PlayerArchetype _playerArchetype = PlayerArchetype.Swordsman;
 
+        [Tooltip("Seed du personnage généré (archétypes procéduraux, ex. Swordsman). Fixe-le pour itérer sur un visuel précis.")]
+        [SerializeField]
+        private int _characterSeed;
+
+        [Tooltip("Coché : un personnage différent à chaque lancement. Décoché : toujours _characterSeed.")]
+        [SerializeField]
+        private bool _randomizeSeedOnSpawn;
+
         [Header("Caméra")]
         [Tooltip("Distance de la caméra derrière le joueur.")]
         [SerializeField] private float _cameraDistance = 6f;
@@ -52,9 +60,13 @@ namespace CubeWorld.Player
                 return;
             }
 
+            int effectiveSeed = _randomizeSeedOnSpawn
+                ? UnityEngine.Random.Range(int.MinValue, int.MaxValue)
+                : _characterSeed;
+
             var playerObject = new GameObject("Player");
             player = playerObject.AddComponent<PlayerController>();
-            player.Initialize(_playerArchetype);
+            player.Initialize(_playerArchetype, effectiveSeed);
             player.BindInput(_inputActions);
 
             var health = playerObject.AddComponent<PlayerHealth>();
