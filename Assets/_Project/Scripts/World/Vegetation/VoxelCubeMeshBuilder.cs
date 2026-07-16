@@ -5,7 +5,7 @@ namespace CubeWorld.World
 {
     /// <summary>
     /// Primitives de mesh voxel partagées par les arbres et les nuages (mêmes
-    /// volumes de mini-cubes que <c>Player.VoxelModels.PlayerVoxelMeshCore</c>,
+    /// volumes de mini-cubes que <c>Player.CharacterModel.Core.VoxelStamper</c>,
     /// copie indépendante côté World — voir docs/ARCHITECTURE.md, World ne doit
     /// jamais dépendre de Player).
     /// </summary>
@@ -38,8 +38,52 @@ namespace CubeWorld.World
             int seed
         )
         {
+            _ = seed; // conservé pour l'API (variantes / appelants existants)
             bool[,,] mask = BuildMask(shape, sx, sy, sz);
+            AddMasked(mesh, origin, sx, sy, sz, mask, colorAt, unit);
+        }
 
+        /// <summary>
+        /// Volume libre : <paramref name="isSolid"/> décide cube par cube
+        /// (troncs coniques, houppiers irréguliers…).
+        /// </summary>
+        internal static void AddCustom(
+            VoxelCubeMeshData mesh,
+            Vector3Int origin,
+            int sx,
+            int sy,
+            int sz,
+            Func<int, int, int, bool> isSolid,
+            Func<int, int, int, Color32> colorAt,
+            float unit
+        )
+        {
+            var mask = new bool[sx, sy, sz];
+            for (int x = 0; x < sx; x++)
+            {
+                for (int y = 0; y < sy; y++)
+                {
+                    for (int z = 0; z < sz; z++)
+                    {
+                        mask[x, y, z] = isSolid(x, y, z);
+                    }
+                }
+            }
+
+            AddMasked(mesh, origin, sx, sy, sz, mask, colorAt, unit);
+        }
+
+        private static void AddMasked(
+            VoxelCubeMeshData mesh,
+            Vector3Int origin,
+            int sx,
+            int sy,
+            int sz,
+            bool[,,] mask,
+            Func<int, int, int, Color32> colorAt,
+            float unit
+        )
+        {
             for (int x = 0; x < sx; x++)
             {
                 for (int y = 0; y < sy; y++)
@@ -51,13 +95,7 @@ namespace CubeWorld.World
                             continue;
                         }
 
-                        Color32 color = Jitter(
-                            colorAt(x, y, z),
-                            seed,
-                            origin.x + x,
-                            origin.y + y,
-                            origin.z + z
-                        );
+                        Color32 color = colorAt(x, y, z);
 
                         for (int face = 0; face < 6; face++)
                         {
@@ -153,37 +191,6 @@ namespace CubeWorld.World
             mesh.Triangles.Add(baseIndex + 2);
             mesh.Triangles.Add(baseIndex + 1);
             mesh.Triangles.Add(baseIndex + 3);
-        }
-
-        // Légère variation déterministe de la couleur par mini-cube, même
-        // principe que VoxelPalette.Vary / PlayerVoxelMeshCore.Jitter.
-        private static Color32 Jitter(Color32 color, int seed, int x, int y, int z)
-        {
-            const float strength = 0.02f;
-            float t = (HashToUnit(seed, x, y, z) * 2f) - 1f;
-            float factor = 1f + (t * strength);
-
-            return new Color32(
-                (byte)Mathf.Clamp(Mathf.RoundToInt(color.r * factor), 0, 255),
-                (byte)Mathf.Clamp(Mathf.RoundToInt(color.g * factor), 0, 255),
-                (byte)Mathf.Clamp(Mathf.RoundToInt(color.b * factor), 0, 255),
-                color.a
-            );
-        }
-
-        private static float HashToUnit(int seed, int x, int y, int z)
-        {
-            unchecked
-            {
-                uint h = (uint)seed * 374761393u;
-                h ^= (uint)x * 668265263u;
-                h ^= (uint)y * 2246822519u;
-                h ^= (uint)z * 3266489917u;
-                h ^= h >> 15;
-                h *= 2246822519u;
-                h ^= h >> 13;
-                return (h & 0x00FFFFFFu) / (float)0x01000000u;
-            }
         }
 
         private static Vector3Int FaceDirection(int face) =>

@@ -12,14 +12,31 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 98d46ae0844d82e4eae37a15b429985b, type: 3}
   m_Name: VegetationConfig
   m_EditorClassIdentifier: CubeWorld.World::CubeWorld.World.VegetationConfig
-  _grassTuftDensity: 0.15
+  _grassTuftDensity: 0.22
   _grassTuftMinSize: 0.25
   _grassTuftMaxSize: 0.45
-  _treeDensity: 0.02
-  _treeMinSpacing: 4
-  _treeVariantCount: 4
-  _treeVoxelUnit: 0.35
-  _trunkHeightMin: 5
-  _trunkHeightMax: 8
-  _canopyRadiusMin: 4
-  _canopyRadiusMax: 6
+  _grassTuftMinWidth: 0.025
+  _grassTuftMaxWidth: 0.045
+  _flowerDensity: 0.12
+  _flowerMinSize: 0.28
+  _flowerMaxSize: 0.5
+  _flowerMinWidth: 0.03
+  _flowerMaxWidth: 0.055
+  _treeDensity: 0.012
+  _treeMinSpacing: 7
+  _treeVariantCount: 12
+  _treeVoxelUnit: 0.32
+  _trunkHeightMin: 10
+  _trunkHeightMax: 18
+  _canopyRadiusMin: 6
+  _canopyRadiusMax: 10
+  _desertPropDensity: 0.018
+  _desertPropMinSpacing: 5
+  _desertPropVariantCount: 10
+  _snowPropDensity: 0.014
+  _snowPropMinSpacing: 6
+  _snowPropVariantCount: 10
+  _swampPropDensity: 0.02
+  _swampPropMinSpacing: 5
+  _swampPropVariantCount: 12
+  _propVoxelUnit: 0.28

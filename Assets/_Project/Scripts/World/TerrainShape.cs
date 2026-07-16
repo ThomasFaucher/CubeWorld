@@ -63,15 +63,19 @@ namespace CubeWorld.World
             {
                 if (worldY <= seaLevel + 1)
                 {
-                    return biome == BiomeType.Snow
-                        ? new Voxel(VoxelType.Snow)
-                        : new Voxel(VoxelType.Sand);
+                    return biome switch
+                    {
+                        BiomeType.Snow => new Voxel(VoxelType.Snow),
+                        BiomeType.Swamp => new Voxel(VoxelType.Grass),
+                        _ => new Voxel(VoxelType.Sand),
+                    };
                 }
 
                 return biome switch
                 {
                     BiomeType.Desert => new Voxel(VoxelType.Sand),
                     BiomeType.Snow => new Voxel(VoxelType.Snow),
+                    BiomeType.Swamp => new Voxel(VoxelType.Grass),
                     _ => worldY >= snowHeight
                         ? new Voxel(VoxelType.Snow)
                         : new Voxel(VoxelType.Grass),

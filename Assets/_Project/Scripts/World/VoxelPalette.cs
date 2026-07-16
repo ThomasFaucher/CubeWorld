@@ -5,12 +5,12 @@ namespace CubeWorld.World
 {
     /// <summary>
     /// Palette de couleurs des voxels — style CubeWorld : une couleur unie par
-    /// type (pas de textures), avec une légère variation aléatoire par voxel
-    /// pour casser l'uniformité des grandes surfaces.
+    /// type (pas de textures), teintée par biome, avec une variation régionale
+    /// douce (pas de damier voxel-par-voxel).
     /// </summary>
     public static class VoxelPalette
     {
-        public static Color32 GetColor(VoxelType type, int3 worldPosition)
+        public static Color32 GetColor(VoxelType type, int3 worldPosition, BiomeType biome)
         {
             Color32 baseColor = type switch
             {
@@ -30,35 +30,98 @@ namespace CubeWorld.World
                 _ => new Color32(255, 0, 255, 255), // magenta = type inconnu, visible en debug
             };
 
-            // Variation légère seulement : le style cartoon visé veut des
-            // couleurs unies, le relief se lit via l'éclairage en paliers du
-            // shader (CubeWorld/VoxelTerrain), pas via le bruit de couleur.
-            float strength = type switch
-            {
-                VoxelType.Grass => 0.025f,
-                VoxelType.Water => 0f,
-                _ => 0.015f,
-            };
-
-            return Vary(baseColor, worldPosition, strength);
+            baseColor = ApplyBiomeTint(baseColor, type, biome);
+            return ApplyRegionalTint(baseColor, type, worldPosition);
         }
 
-        // Assombrit/éclaircit la couleur d'un facteur déterministe dérivé de la
-        // position : le même voxel garde la même teinte d'une frame à l'autre.
-        private static Color32 Vary(Color32 color, int3 position, float strength)
+        // Multiplicateurs RGB par biome : différencient Plaines / Forêt / Désert / Neige
+        // sans changer de matériau (toujours des vertex colors).
+        private static Color32 ApplyBiomeTint(Color32 color, VoxelType type, BiomeType biome)
         {
-            if (strength <= 0f)
+            float3 mul = biome switch
+            {
+                BiomeType.Plains => type switch
+                {
+                    VoxelType.Grass => new float3(1.12f, 1.05f, 0.82f), // jaune-vert chaud
+                    VoxelType.Dirt => new float3(1.05f, 1.0f, 0.92f),
+                    _ => new float3(1f, 1f, 1f),
+                },
+                BiomeType.Forest => type switch
+                {
+                    VoxelType.Grass => new float3(0.78f, 0.95f, 0.72f), // vert plus profond
+                    VoxelType.Dirt => new float3(0.88f, 0.85f, 0.82f),
+                    VoxelType.Stone => new float3(0.92f, 0.96f, 0.94f),
+                    _ => new float3(1f, 1f, 1f),
+                },
+                BiomeType.Desert => type switch
+                {
+                    VoxelType.Sand => new float3(1.08f, 0.96f, 0.78f), // sable plus chaud
+                    VoxelType.Stone => new float3(1.08f, 0.98f, 0.88f), // pierre ocrée
+                    VoxelType.Dirt => new float3(1.1f, 0.95f, 0.8f),
+                    _ => new float3(1f, 1f, 1f),
+                },
+                BiomeType.Snow => type switch
+                {
+                    VoxelType.Snow => new float3(0.92f, 0.96f, 1.08f), // neige bleutée
+                    VoxelType.Ice => new float3(0.9f, 0.96f, 1.1f),
+                    VoxelType.Stone => new float3(0.88f, 0.92f, 1.05f), // pierre froide
+                    VoxelType.Dirt => new float3(0.9f, 0.92f, 1.0f),
+                    _ => new float3(1f, 1f, 1f),
+                },
+                BiomeType.Swamp => type switch
+                {
+                    // Olive très sombre / boueux — le marais ne doit pas lire « prairie ».
+                    VoxelType.Grass => new float3(0.38f, 0.48f, 0.32f),
+                    VoxelType.Dirt => new float3(0.55f, 0.52f, 0.42f),
+                    VoxelType.Water => new float3(0.4f, 0.75f, 0.5f), // eau verdâtre sombre
+                    VoxelType.Stone => new float3(0.75f, 0.8f, 0.7f),
+                    _ => new float3(1f, 1f, 1f),
+                },
+                _ => new float3(1f, 1f, 1f),
+            };
+
+            return ScaleColor(color, mul);
+        }
+
+        // Variation régionale continue (bruit lisse) : les blocs voisins restent
+        // proches en teinte — plus de damier « un bloc sur deux ».
+        private static Color32 ApplyRegionalTint(Color32 color, VoxelType type, int3 worldPosition)
+        {
+            if (type == VoxelType.Water || type == VoxelType.Air)
             {
                 return color;
             }
 
-            uint hash = math.hash(position);
-            float factor = 1f + ((hash & 1023) / 1023f * 2f - 1f) * strength;
+            float strength = type switch
+            {
+                VoxelType.Grass => 0.045f,
+                VoxelType.Sand => 0.04f,
+                VoxelType.Snow => 0.03f,
+                _ => 0.02f,
+            };
 
+            // ~25 voxels de période : grandes taches douces, pas de grain voxel.
+            float2 uv = new float2(worldPosition.x, worldPosition.z) * 0.04f;
+            float n = noise.snoise(uv);
+            float factor = 1f + (n * strength);
+
+            // Légère dérive de teinte (pas seulement luminosité) pour l'herbe/sable.
+            float3 chroma = type switch
+            {
+                VoxelType.Grass => new float3(1f + (n * 0.02f), 1f, 1f - (n * 0.015f)),
+                VoxelType.Sand => new float3(1f + (n * 0.015f), 1f, 1f - (n * 0.02f)),
+                _ => new float3(1f, 1f, 1f),
+            };
+
+            return ScaleColor(color, new float3(factor, factor, factor) * chroma);
+        }
+
+        private static Color32 ScaleColor(Color32 color, float3 mul)
+        {
             return new Color32(
-                (byte)math.clamp((int)(color.r * factor), 0, 255),
-                (byte)math.clamp((int)(color.g * factor), 0, 255),
-                (byte)math.clamp((int)(color.b * factor), 0, 255),
+                (byte)math.clamp((int)(color.r * mul.x), 0, 255),
+                (byte)math.clamp((int)(color.g * mul.y), 0, 255),
+                (byte)math.clamp((int)(color.b * mul.z), 0, 255),
                 color.a);
         }
     }

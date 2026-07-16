@@ -6,7 +6,8 @@
         "CubeWorld.World",
         "CubeWorld.Combat",
         "Unity.InputSystem",
-        "Unity.Cinemachine"
+        "Unity.Cinemachine",
+        "Unity.Mathematics"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

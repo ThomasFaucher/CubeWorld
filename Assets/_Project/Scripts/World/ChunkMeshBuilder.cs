@@ -25,6 +25,7 @@ namespace CubeWorld.World
             VegetationConfig vegetationConfig)
         {
             int3 coord = chunk.Coord;
+            BiomeSampleParams biome = world.BiomeParams;
 
             var job = new ChunkMeshBuildJob
             {
@@ -52,6 +53,22 @@ namespace CubeWorld.World
                 GrassTuftDensity = vegetationConfig.GrassTuftDensity,
                 GrassTuftMinSize = vegetationConfig.GrassTuftMinSize,
                 GrassTuftMaxSize = vegetationConfig.GrassTuftMaxSize,
+                GrassTuftMinWidth = vegetationConfig.GrassTuftMinWidth,
+                GrassTuftMaxWidth = vegetationConfig.GrassTuftMaxWidth,
+                FlowerDensity = vegetationConfig.FlowerDensity,
+                FlowerMinSize = vegetationConfig.FlowerMinSize,
+                FlowerMaxSize = vegetationConfig.FlowerMaxSize,
+                FlowerMinWidth = vegetationConfig.FlowerMinWidth,
+                FlowerMaxWidth = vegetationConfig.FlowerMaxWidth,
+                TemperatureSeedOffset = biome.TemperatureSeedOffset,
+                HumiditySeedOffset = biome.HumiditySeedOffset,
+                BiomeNoiseScale = biome.NoiseScale,
+                BiomeOctaves = biome.Octaves,
+                SnowTemperatureThreshold = biome.SnowTemperatureThreshold,
+                DesertTemperatureThreshold = biome.DesertTemperatureThreshold,
+                DesertHumidityThreshold = biome.DesertHumidityThreshold,
+                SwampHumidityThreshold = biome.SwampHumidityThreshold,
+                ForestHumidityThreshold = biome.ForestHumidityThreshold,
             };
 
             JobHandle dependency = JobHandle.CombineDependencies(

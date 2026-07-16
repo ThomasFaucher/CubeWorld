@@ -1,4 +1,5 @@
-using CubeWorld.Player.VoxelModels.Generation;
+using CubeWorld.Player.CharacterModel;
+using CubeWorld.Player.CharacterModel.Generation;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -16,23 +17,41 @@ namespace CubeWorld.Player
     public sealed class PlayerController : MonoBehaviour
     {
         [Header("Déplacement")]
-        [SerializeField] private float _walkSpeed = 6f;
-        [SerializeField] private float _sprintMultiplier = 1.8f;
-        [SerializeField] private float _jumpHeight = 1.5f;
-        [SerializeField] private float _gravity = -20f;
-        [SerializeField] private float _rotationSpeed = 12f;
+        [SerializeField]
+        private float _walkSpeed = 6f;
+
+        [SerializeField]
+        private float _sprintMultiplier = 1.8f;
+
+        [SerializeField]
+        private float _jumpHeight = 1.5f;
+
+        [SerializeField]
+        private float _gravity = -20f;
+
+        [SerializeField]
+        private float _rotationSpeed = 12f;
 
         [Header("Gabarit")]
-        [SerializeField] private float _height = 1.8f;
-        [SerializeField] private float _radius = 0.4f;
-        [SerializeField] private Vector3 _cameraTargetOffset = new(0f, 1.6f, 0f);
+        [SerializeField]
+        private float _height = 1.8f;
+
+        [SerializeField]
+        private float _radius = 0.4f;
+
+        [SerializeField]
+        private Vector3 _cameraTargetOffset = new(0f, 1.6f, 0f);
 
         [Header("Visuel")]
         [Tooltip("Hauteur du mesh voxel (chibi). Plus petit que le collider.")]
-        [SerializeField] private float _visualHeight = 1.28f;
+        [SerializeField]
+        private float _visualHeight = 1.28f;
 
-        [Tooltip("Debug : expression du visage (archétypes procéduraux uniquement, ex. Swordsman).")]
-        [SerializeField] private CharacterExpression _debugExpression = CharacterExpression.Neutral;
+        [Tooltip(
+            "Debug : expression du visage (archétypes procéduraux uniquement, ex. Swordsman)."
+        )]
+        [SerializeField]
+        private CharacterExpression _debugExpression = CharacterExpression.Neutral;
 
         private PlayerArchetype archetype = PlayerArchetype.Swordsman;
         private int seed;
@@ -66,7 +85,8 @@ namespace CubeWorld.Player
         }
 
         /// <summary>Appelé par PlayerBootstrap juste après AddComponent, avant Start.</summary>
-        public void Initialize(PlayerArchetype playerArchetype) => Initialize(playerArchetype, seed: 0);
+        public void Initialize(PlayerArchetype playerArchetype) =>
+            Initialize(playerArchetype, seed: 0);
 
         /// <summary>
         /// Variante avec seed explicite : même seed -> même personnage généré
@@ -104,21 +124,37 @@ namespace CubeWorld.Player
             Vector2 moveInput = moveAction.ReadValue<Vector2>();
             bool sprint = sprintAction.IsPressed();
             bool jumpPressed = jumpAction.WasPressedThisFrame();
-            float cameraYaw = Camera.main != null ? Camera.main.transform.eulerAngles.y : transform.eulerAngles.y;
+            float cameraYaw =
+                Camera.main != null ? Camera.main.transform.eulerAngles.y : transform.eulerAngles.y;
 
-            Vector3 move = motor.ComputeMove(moveInput, sprint, jumpPressed, controller.isGrounded, cameraYaw, Time.deltaTime);
+            Vector3 move = motor.ComputeMove(
+                moveInput,
+                sprint,
+                jumpPressed,
+                controller.isGrounded,
+                cameraYaw,
+                Time.deltaTime
+            );
             controller.Move(move);
 
             if (motor.LastMoveDirection.sqrMagnitude > 0.0001f)
             {
-                Quaternion targetRotation = Quaternion.LookRotation(motor.LastMoveDirection, Vector3.up);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, _rotationSpeed * Time.deltaTime);
+                Quaternion targetRotation = Quaternion.LookRotation(
+                    motor.LastMoveDirection,
+                    Vector3.up
+                );
+                transform.rotation = Quaternion.Slerp(
+                    transform.rotation,
+                    targetRotation,
+                    _rotationSpeed * Time.deltaTime
+                );
             }
         }
 
         // Représentation visuelle : personnage voxel généré en code (style chibi
-        // CubeWorld). Pas de collider dessus : le CharacterController gère la
-        // physique du joueur lui-même.
+        // CubeWorld), assemblé en pièces indépendantes (une par partie du corps)
+        // animées par rotation via ProceduralCharacterAnimator. Pas de collider
+        // dessus : le CharacterController gère la physique du joueur lui-même.
         private void CreateVoxelVisual()
         {
             if (visualRoot != null)
@@ -126,24 +162,17 @@ namespace CubeWorld.Player
                 Destroy(visualRoot);
             }
 
-            visualRoot = new GameObject("VoxelVisual");
+            visualRoot = CharacterModelBuilder.Build(
+                _visualHeight,
+                archetype,
+                seed,
+                _debugExpression
+            );
             visualRoot.transform.SetParent(transform, false);
             visualRoot.transform.localPosition = Vector3.zero;
 
-            MeshFilter meshFilter = visualRoot.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = PlayerVoxelModelBuilder.Build(_visualHeight, archetype, seed, _debugExpression);
-
-            Shader shader = Shader.Find("CubeWorld/VoxelTerrain");
-            if (shader == null)
-            {
-                shader = Shader.Find("Universal Render Pipeline/Lit");
-            }
-
-            MeshRenderer renderer = visualRoot.AddComponent<MeshRenderer>();
-            if (shader != null)
-            {
-                renderer.sharedMaterial = new Material(shader);
-            }
+            var animator = visualRoot.AddComponent<ProceduralCharacterAnimator>();
+            animator.Initialize(visualRoot.GetComponent<CharacterModelRoot>(), controller);
         }
     }
 }

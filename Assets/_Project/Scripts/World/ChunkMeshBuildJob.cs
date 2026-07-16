@@ -40,10 +40,8 @@ namespace CubeWorld.World
         public NativeList<Color32> WaterColors;
         public NativeList<int> WaterTriangles;
 
-        // Touffes d'herbe : petits cubes posés au-dessus des voxels Grass dont la
-        // face du dessus est exposée à l'air. Mesh à part (pas de collider dessus,
-        // voir WorldBootstrap) : seul le meshing sait quelles faces sont exposées,
-        // donc c'est ici (et pas à la génération) que l'éligibilité se décide.
+        // Touffes d'herbe : brins en quads croisés au-dessus des voxels Grass
+        // exposés. Mesh à part (pas de collider — voir WorldBootstrap).
         public NativeList<float3> FoliageVertices;
         public NativeList<float3> FoliageNormals;
         public NativeList<Color32> FoliageColors;
@@ -52,6 +50,25 @@ namespace CubeWorld.World
         public float GrassTuftDensity;
         public float GrassTuftMinSize;
         public float GrassTuftMaxSize;
+        public float GrassTuftMinWidth;
+        public float GrassTuftMaxWidth;
+
+        public float FlowerDensity;
+        public float FlowerMinSize;
+        public float FlowerMaxSize;
+        public float FlowerMinWidth;
+        public float FlowerMaxWidth;
+
+        // Paramètres biome (même graine que TerrainGenerator) pour teintes vertex.
+        public float2 TemperatureSeedOffset;
+        public float2 HumiditySeedOffset;
+        public float BiomeNoiseScale;
+        public int BiomeOctaves;
+        public float SnowTemperatureThreshold;
+        public float DesertTemperatureThreshold;
+        public float DesertHumidityThreshold;
+        public float SwampHumidityThreshold;
+        public float ForestHumidityThreshold;
 
         // Index de la face "dessus" dans GetFaceDirection/GetFaceCornerIndex.
         private const int TopFaceIndex = 2;
@@ -78,7 +95,9 @@ namespace CubeWorld.World
 
         private void AddVisibleFaces(Voxel voxel, int3 local)
         {
-            Color32 color = VoxelPalette.GetColor(voxel.Type, Origin + local);
+            int3 worldPos = Origin + local;
+            BiomeType biome = SampleBiome(worldPos.x, worldPos.z);
+            Color32 color = VoxelPalette.GetColor(voxel.Type, worldPos, biome);
             bool isWater = voxel.Type == VoxelType.Water;
             bool topExposed = false;
 
@@ -94,14 +113,31 @@ namespace CubeWorld.World
             }
 
             // L'herbe ne pousse que là où un voxel Grass est réellement à l'air
-            // libre — un Grass enterré (rare, mais possible aux coutures) n'en
-            // porte pas. VoxelType.Grass n'existe déjà que sur les biomes
-            // Forêt/Plaines (voir TerrainShape.CreateVoxel), donc aucune
-            // vérification de biome n'est nécessaire ici.
+            // libre — VoxelType.Grass n'existe déjà que sur Forêt/Plaines/Marais.
             if (topExposed && voxel.Type == VoxelType.Grass)
             {
-                TryAddGrassTuft(local);
+                TryAddGrassTuft(local, biome);
+                if (biome == BiomeType.Plains)
+                {
+                    TryAddFlower(local);
+                }
             }
+        }
+
+        private BiomeType SampleBiome(int worldX, int worldZ)
+        {
+            return BiomeShape.Sample(
+                worldX,
+                worldZ,
+                TemperatureSeedOffset,
+                HumiditySeedOffset,
+                BiomeNoiseScale,
+                BiomeOctaves,
+                SnowTemperatureThreshold,
+                DesertTemperatureThreshold,
+                DesertHumidityThreshold,
+                SwampHumidityThreshold,
+                ForestHumidityThreshold);
         }
 
         // Une face solide est visible contre de l'air ou contre de l'eau (elle
@@ -188,10 +224,9 @@ namespace CubeWorld.World
             triangles.Add(baseIndex + 3);
         }
 
-        // Tirage déterministe (même monde => mêmes touffes) : un voxel Grass sur
-        // GrassTuftDensity porte 3 à 5 brins fins, hauteur/position/teinte
-        // dérivées du même hash avec des sels différents.
-        private void TryAddGrassTuft(int3 local)
+        // Tirage déterministe : un voxel Grass sur GrassTuftDensity porte 4 à 7
+        // brins en quads croisés (fins), hauteur/largeur/position/teinte hashées.
+        private void TryAddGrassTuft(int3 local, BiomeType biome)
         {
             int3 worldPos = Origin + local;
 
@@ -200,75 +235,183 @@ namespace CubeWorld.World
                 return;
             }
 
-            int tuftCount = 3 + (int)(HashToUnit(worldPos, 1) * 3f);
+            int tuftCount = 4 + (int)(HashToUnit(worldPos, 1) * 4f);
             for (int i = 0; i < tuftCount; i++)
             {
-                AddGrassBlade(local, worldPos, i);
+                AddGrassBlade(local, worldPos, i, biome);
             }
         }
 
-        // Un brin = une boîte fine et haute (pas un cube : des cubes flottants
-        // ressemblent à des débris, des brins élancés ressemblent à de l'herbe),
-        // posée sur la face supérieure du voxel porteur.
-        private void AddGrassBlade(int3 local, int3 worldPos, int index)
+        // Fleurs Plains : 1–3 brins colorés (même géométrie croisée que l'herbe).
+        private void TryAddFlower(int3 local)
+        {
+            int3 worldPos = Origin + local;
+
+            if (HashToUnit(worldPos, 40) >= FlowerDensity)
+            {
+                return;
+            }
+
+            int flowerCount = 1 + (int)(HashToUnit(worldPos, 41) * 3f);
+            for (int i = 0; i < flowerCount; i++)
+            {
+                AddFoliageBlade(
+                    local,
+                    worldPos,
+                    i,
+                    FlowerMinSize,
+                    FlowerMaxSize,
+                    FlowerMinWidth,
+                    FlowerMaxWidth,
+                    50,
+                    FlowerColor(worldPos, i));
+            }
+        }
+
+        // Un brin = deux quads croisés (plans X et Z), légers et lisibles de
+        // tous les angles — pas une boîte épaisse qui ressemble à un débris.
+        private void AddGrassBlade(int3 local, int3 worldPos, int index, BiomeType biome)
+        {
+            AddFoliageBlade(
+                local,
+                worldPos,
+                index,
+                GrassTuftMinSize,
+                GrassTuftMaxSize,
+                GrassTuftMinWidth,
+                GrassTuftMaxWidth,
+                10,
+                GrassTuftColor(worldPos, index, biome));
+        }
+
+        private void AddFoliageBlade(
+            int3 local,
+            int3 worldPos,
+            int index,
+            float minSize,
+            float maxSize,
+            float minWidth,
+            float maxWidth,
+            int saltBase,
+            Color32 color)
         {
             int salt = index * 4;
-            float height = math.lerp(GrassTuftMinSize, GrassTuftMaxSize, HashToUnit(worldPos, 10 + salt));
-            float width = 0.10f + (HashToUnit(worldPos, 13 + salt) * 0.08f);
+            float height = math.lerp(minSize, maxSize, HashToUnit(worldPos, saltBase + salt));
+            float width = math.lerp(minWidth, maxWidth, HashToUnit(worldPos, saltBase + 3 + salt));
 
-            // Décalage horizontal borné pour que le brin reste dans l'empreinte
-            // du voxel porteur (évite qu'il déborde visiblement sur un voxel
-            // voisin qui pourrait être de l'air).
             float maxOffset = (1f - width) * 0.5f;
-            float offsetX = ((HashToUnit(worldPos, 11 + salt) * 2f) - 1f) * maxOffset;
-            float offsetZ = ((HashToUnit(worldPos, 12 + salt) * 2f) - 1f) * maxOffset;
+            float offsetX = ((HashToUnit(worldPos, saltBase + 1 + salt) * 2f) - 1f) * maxOffset;
+            float offsetZ = ((HashToUnit(worldPos, saltBase + 2 + salt) * 2f) - 1f) * maxOffset;
 
-            var center = (float3)local + new float3(0.5f + offsetX, 1f + (height * 0.5f), 0.5f + offsetZ);
-            Color32 color = GrassTuftColor(worldPos, index);
+            float yaw = HashToUnit(worldPos, saltBase + 4 + salt) * math.PI;
+            float cosYaw = math.cos(yaw);
+            float sinYaw = math.sin(yaw);
 
-            AddFoliageBox(center, new float3(width * 0.5f, height * 0.5f, width * 0.5f), color);
+            var baseCenter = (float3)local + new float3(0.5f + offsetX, 1f, 0.5f + offsetZ);
+            float halfW = width * 0.5f;
+
+            AddFoliageQuadDoubleSided(
+                baseCenter + RotateYaw(new float3(-halfW, 0f, 0f), cosYaw, sinYaw),
+                baseCenter + RotateYaw(new float3(halfW, 0f, 0f), cosYaw, sinYaw),
+                baseCenter + RotateYaw(new float3(-halfW, height, 0f), cosYaw, sinYaw),
+                baseCenter + RotateYaw(new float3(halfW, height, 0f), cosYaw, sinYaw),
+                math.normalize(RotateYaw(new float3(0f, 0f, 1f), cosYaw, sinYaw)),
+                color);
+
+            AddFoliageQuadDoubleSided(
+                baseCenter + RotateYaw(new float3(0f, 0f, -halfW), cosYaw, sinYaw),
+                baseCenter + RotateYaw(new float3(0f, 0f, halfW), cosYaw, sinYaw),
+                baseCenter + RotateYaw(new float3(0f, height, -halfW), cosYaw, sinYaw),
+                baseCenter + RotateYaw(new float3(0f, height, halfW), cosYaw, sinYaw),
+                math.normalize(RotateYaw(new float3(1f, 0f, 0f), cosYaw, sinYaw)),
+                color);
         }
 
-        // Boîte autonome dans le mesh Foliage, en réutilisant les mêmes tables
-        // de coins/faces que AddFace. La face du dessous est omise : posée sur
-        // le sol, elle n'est jamais visible (5 faces au lieu de 6 par brin).
-        private void AddFoliageBox(float3 centerLocal, float3 halfExtents, Color32 color)
+        private static float3 RotateYaw(float3 local, float cosYaw, float sinYaw)
         {
-            for (int face = 0; face < 6; face++)
+            return new float3(
+                (local.x * cosYaw) - (local.z * sinYaw),
+                local.y,
+                (local.x * sinYaw) + (local.z * cosYaw));
+        }
+
+        // Émet un quad recto + verso (Cull Back du shader terrain).
+        // Coins : bl, br, tl, tr — winding horaire vu depuis la normale.
+        private void AddFoliageQuadDoubleSided(
+            float3 bottomLeft,
+            float3 bottomRight,
+            float3 topLeft,
+            float3 topRight,
+            float3 normal,
+            Color32 color)
+        {
+            AddFoliageQuad(bottomLeft, bottomRight, topLeft, topRight, normal, color);
+            AddFoliageQuad(bottomRight, bottomLeft, topRight, topLeft, -normal, color);
+        }
+
+        private void AddFoliageQuad(
+            float3 bottomLeft,
+            float3 bottomRight,
+            float3 topLeft,
+            float3 topRight,
+            float3 normal,
+            Color32 color)
+        {
+            int baseIndex = FoliageVertices.Length;
+
+            FoliageVertices.Add(bottomLeft);
+            FoliageVertices.Add(topLeft);
+            FoliageVertices.Add(bottomRight);
+            FoliageVertices.Add(topRight);
+
+            FoliageNormals.Add(normal);
+            FoliageNormals.Add(normal);
+            FoliageNormals.Add(normal);
+            FoliageNormals.Add(normal);
+
+            FoliageColors.Add(color);
+            FoliageColors.Add(color);
+            FoliageColors.Add(color);
+            FoliageColors.Add(color);
+
+            FoliageTriangles.Add(baseIndex + 0);
+            FoliageTriangles.Add(baseIndex + 1);
+            FoliageTriangles.Add(baseIndex + 2);
+            FoliageTriangles.Add(baseIndex + 2);
+            FoliageTriangles.Add(baseIndex + 1);
+            FoliageTriangles.Add(baseIndex + 3);
+        }
+
+        // Vert un peu plus soutenu que le sol, teinté Plains / Forest / Swamp.
+        private static Color32 GrassTuftColor(int3 worldPos, int index, BiomeType biome)
+        {
+            Color32 baseColor = biome switch
             {
-                if (face == 3)
-                {
-                    continue; // dessous
-                }
+                BiomeType.Forest => new Color32(42, 148, 48, 255),
+                BiomeType.Swamp => new Color32(28, 62, 30, 255),
+                _ => new Color32(78, 188, 52, 255),
+            };
 
-                int baseIndex = FoliageVertices.Length;
-                float3 normal = GetFaceDirection(face);
-
-                for (int i = 0; i < 4; i++)
-                {
-                    float3 corner = ((GetCorner(GetFaceCornerIndex(face, i)) - 0.5f) * (halfExtents * 2f)) + centerLocal;
-                    FoliageVertices.Add(corner);
-                    FoliageNormals.Add(normal);
-                    FoliageColors.Add(color);
-                }
-
-                FoliageTriangles.Add(baseIndex + 0);
-                FoliageTriangles.Add(baseIndex + 1);
-                FoliageTriangles.Add(baseIndex + 2);
-                FoliageTriangles.Add(baseIndex + 2);
-                FoliageTriangles.Add(baseIndex + 1);
-                FoliageTriangles.Add(baseIndex + 3);
-            }
+            float factor = 1f + (((HashToUnit(worldPos, 20 + index) * 2f) - 1f) * 0.06f);
+            return ScaleColor(baseColor, factor);
         }
 
-        // Vert un peu plus soutenu que le sol (voir VoxelPalette.Grass) pour que
-        // les brins se détachent visuellement, avec une variation par brin plus
-        // marquée que celle du terrain (une touffe vivante n'est pas uniforme).
-        private static Color32 GrassTuftColor(int3 worldPos, int index)
+        private static Color32 FlowerColor(int3 worldPos, int index)
         {
-            var baseColor = new Color32(58, 178, 50, 255);
-            float factor = 1f + (((HashToUnit(worldPos, 20 + index) * 2f) - 1f) * 0.15f);
+            int paletteIndex = (int)(HashToUnit(worldPos, 70 + index) * 4f);
+            Color32 baseColor = paletteIndex switch
+            {
+                0 => new Color32(245, 210, 55, 255),
+                1 => new Color32(250, 250, 250, 255),
+                2 => new Color32(235, 120, 160, 255),
+                _ => new Color32(255, 170, 70, 255),
+            };
+            float factor = 1f + (((HashToUnit(worldPos, 80 + index) * 2f) - 1f) * 0.08f);
+            return ScaleColor(baseColor, factor);
+        }
 
+        private static Color32 ScaleColor(Color32 baseColor, float factor)
+        {
             return new Color32(
                 (byte)math.clamp((int)(baseColor.r * factor), 0, 255),
                 (byte)math.clamp((int)(baseColor.g * factor), 0, 255),
@@ -277,9 +420,7 @@ namespace CubeWorld.World
             );
         }
 
-        // Hash déterministe [0, 1) dérivé de la position monde + d'un sel (pour
-        // tirer plusieurs valeurs indépendantes à la même position sans les
-        // corréler) — même principe que VoxelPalette.Vary, gardé local au job.
+        // Hash déterministe [0, 1) dérivé de la position monde + d'un sel.
         private static float HashToUnit(int3 position, int salt)
         {
             uint hash = math.hash(new int4(position, salt));
@@ -292,8 +433,6 @@ namespace CubeWorld.World
         }
 
         // Les 8 coins d'un voxel unitaire, relatifs à son coin (0,0,0).
-        // (Tables exprimées en switch plutôt qu'en tableaux : les jobs Burst ne
-        // peuvent pas référencer de tableaux managés.)
         private static float3 GetCorner(int index) => index switch
         {
             0 => new float3(0f, 0f, 0f),
@@ -306,7 +445,6 @@ namespace CubeWorld.World
             _ => new float3(0f, 1f, 1f), // 7
         };
 
-        // Direction du voisin à tester pour chaque face.
         private static int3 GetFaceDirection(int face) => face switch
         {
             0 => new int3(0, 0, -1), // arrière
@@ -317,8 +455,6 @@ namespace CubeWorld.World
             _ => new int3(1, 0, 0),  // droite
         };
 
-        // Les 4 coins de chaque face, ordonnés pour un enroulement horaire
-        // (faces visibles de l'extérieur avec le winding Unity).
         private static int GetFaceCornerIndex(int face, int i) => face switch
         {
             0 => i switch { 0 => 0, 1 => 3, 2 => 1, _ => 2 }, // arrière

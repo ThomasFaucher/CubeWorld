@@ -2,7 +2,8 @@ namespace CubeWorld.World
 {
     /// <summary>
     /// Biome climatique d'une colonne (x, z) du monde. Détermine le matériau
-    /// de surface et l'éligibilité à la végétation (voir BiomeShape, TerrainShape).
+    /// de surface, les teintes et l'éligibilité aux props (voir BiomeShape,
+    /// TerrainShape, VegetationSpawner).
     /// </summary>
     public enum BiomeType : byte
     {
@@ -10,5 +11,6 @@ namespace CubeWorld.World
         Forest = 1,
         Desert = 2,
         Snow = 3,
+        Swamp = 4,
     }
 }

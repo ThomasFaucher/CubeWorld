@@ -83,6 +83,7 @@ namespace CubeWorld.Player
             health.BindEquipment(equipment);
             playerObject.AddComponent<PlayerLoot>().BindInput(_inputActions, inventory);
             playerObject.AddComponent<PlayerCrafting>().Bind(inventory);
+            playerObject.AddComponent<PlayerFootstepDust>().Bind(_worldBootstrap);
             PlayerContext.Transform = playerObject.transform;
 
             cameraRig = PlayerCameraRig.Create(player.CameraTarget, _inputActions, _cameraDistance, _lookSensitivity);
@@ -93,7 +94,7 @@ namespace CubeWorld.Player
             SetFlyMode(false);
 
             // Appelé depuis Awake : garanti de s'exécuter avant WorldBootstrap.Start(),
-            // qui place la cible au-dessus du terrain (voir WorldBootstrap.SetViewTarget).
+            // qui place la cible sur le sol (voir WorldBootstrap.SetViewTarget).
             _worldBootstrap.SetViewTarget(playerObject.transform);
         }
 

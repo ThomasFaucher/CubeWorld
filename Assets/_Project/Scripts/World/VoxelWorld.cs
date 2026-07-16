@@ -162,6 +162,9 @@ namespace CubeWorld.World
             return generator.SampleBiome(worldX, worldZ);
         }
 
+        /// <summary>Paramètres de bruit biome (génération + teintes vertex au meshing).</summary>
+        public BiomeSampleParams BiomeParams => generator.BiomeParams;
+
         /// <summary>Termine tous les jobs en cours et libère tous les chunks (arrêt du monde).</summary>
         public void Dispose()
         {

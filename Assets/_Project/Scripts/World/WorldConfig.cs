@@ -24,8 +24,11 @@ namespace CubeWorld.World
         [SerializeField] private int _verticalViewDistance = 4;
 
         [Header("Génération")]
-        [Tooltip("Graine du monde : une même graine produit le même monde.")]
+        [Tooltip("Graine du monde : une même graine produit le même monde (ignorée si RandomizeSeedOnStart).")]
         [SerializeField] private int _seed = 1337;
+
+        [Tooltip("Si coché, une nouvelle graine est tirée à chaque lancement (monde / biomes différents).")]
+        [SerializeField] private bool _randomizeSeedOnStart = true;
 
         [Tooltip("Échelle du bruit de Perlin : plus petit = collines plus larges.")]
         [SerializeField] private float _noiseScale = 0.008f;
@@ -45,10 +48,14 @@ namespace CubeWorld.World
         public int ViewDistance => _viewDistance;
         public int VerticalViewDistance => _verticalViewDistance;
         public int Seed => _seed;
+        public bool RandomizeSeedOnStart => _randomizeSeedOnStart;
         public float NoiseScale => _noiseScale;
         public int MaxTerrainHeight => _maxTerrainHeight;
         public int SeaLevel => _seaLevel;
         public float BiomeNoiseScale => _biomeNoiseScale;
+
+        /// <summary>Override runtime de la graine (copie d'asset, pas l'asset disque).</summary>
+        public void SetSeed(int seed) => _seed = seed;
 
         /// <summary>Nombre total de voxels dans un chunk.</summary>
         public int VoxelsPerChunk => _chunkSize * _chunkSize * _chunkSize;

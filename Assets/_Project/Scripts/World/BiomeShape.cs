@@ -22,16 +22,56 @@ namespace CubeWorld.World
             float snowTemperatureThreshold,
             float desertTemperatureThreshold,
             float desertHumidityThreshold,
+            float swampHumidityThreshold,
             float forestHumidityThreshold
         )
         {
-            var point = new float2(worldX, worldZ);
-            float temperature = TerrainShape.Fbm(
-                (point + temperatureSeedOffset) * noiseScale,
-                octaves
-            );
-            float humidity = TerrainShape.Fbm((point + humiditySeedOffset) * noiseScale, octaves);
+            SampleClimate(
+                worldX,
+                worldZ,
+                temperatureSeedOffset,
+                humiditySeedOffset,
+                noiseScale,
+                octaves,
+                out float temperature,
+                out float humidity);
 
+            return Classify(
+                temperature,
+                humidity,
+                snowTemperatureThreshold,
+                desertTemperatureThreshold,
+                desertHumidityThreshold,
+                swampHumidityThreshold,
+                forestHumidityThreshold);
+        }
+
+        public static void SampleClimate(
+            int worldX,
+            int worldZ,
+            float2 temperatureSeedOffset,
+            float2 humiditySeedOffset,
+            float noiseScale,
+            int octaves,
+            out float temperature,
+            out float humidity
+        )
+        {
+            var point = new float2(worldX, worldZ);
+            temperature = TerrainShape.Fbm((point + temperatureSeedOffset) * noiseScale, octaves);
+            humidity = TerrainShape.Fbm((point + humiditySeedOffset) * noiseScale, octaves);
+        }
+
+        public static BiomeType Classify(
+            float temperature,
+            float humidity,
+            float snowTemperatureThreshold,
+            float desertTemperatureThreshold,
+            float desertHumidityThreshold,
+            float swampHumidityThreshold,
+            float forestHumidityThreshold
+        )
+        {
             if (temperature < snowTemperatureThreshold)
             {
                 return BiomeType.Snow;
@@ -42,7 +82,16 @@ namespace CubeWorld.World
                 return BiomeType.Desert;
             }
 
+            if (
+                humidity > swampHumidityThreshold
+                && temperature <= desertTemperatureThreshold
+            )
+            {
+                return BiomeType.Swamp;
+            }
+
             return humidity > forestHumidityThreshold ? BiomeType.Forest : BiomeType.Plains;
         }
+
     }
 }

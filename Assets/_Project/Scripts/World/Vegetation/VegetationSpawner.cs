@@ -6,12 +6,9 @@ using UnityEngine;
 namespace CubeWorld.World
 {
     /// <summary>
-    /// Place des arbres sur les colonnes Grass en biome Forêt, à mesure que les
-    /// chunks streament — même pattern d'abonnement que
-    /// <see cref="NavMeshRegionBaker"/> (EventBus, pas d'appel direct depuis
-    /// WorldBootstrap). Chaque chunk n'est traité qu'une seule fois (à sa
-    /// première matérialisation) : un remesh dû au voisinage ne change jamais
-    /// le terrain lui-même, donc jamais les arbres qui y poussent.
+    /// Place la végétation / props par biome à mesure que les chunks streament —
+    /// même pattern d'abonnement que <see cref="NavMeshRegionBaker"/> (EventBus).
+    /// Chaque chunk n'est traité qu'une seule fois (à sa première matérialisation).
     /// </summary>
     public sealed class VegetationSpawner : MonoBehaviour
     {
@@ -26,16 +23,43 @@ namespace CubeWorld.World
         private VegetationConfig _vegetationConfig;
 
         [Tooltip(
-            "Rayon (en voxels) autour du point de spawn du joueur (0, 0) où aucun arbre n'apparaît."
+            "Rayon (en voxels) autour du point de spawn du joueur (0, 0) où aucun prop n'apparaît."
         )]
         [SerializeField]
         private int _spawnExclusionRadius = 6;
 
         private VegetationConfig vegetationConfig;
-        private Mesh[] treeVariants;
-        private Material treeMaterial;
+        private Material propMaterial;
+        private PropFamily[] families;
         private readonly Dictionary<int3, GameObject> vegetationRoots = new();
         private readonly List<Vector2Int> placedThisChunkBuffer = new();
+
+        private readonly struct PropFamily
+        {
+            public readonly BiomeType Biome;
+            public readonly VoxelType SurfaceType;
+            public readonly float Density;
+            public readonly int MinSpacing;
+            public readonly int DensitySalt;
+            public readonly PropMeshLibrary.PropVariant[] Variants;
+
+            public PropFamily(
+                BiomeType biome,
+                VoxelType surfaceType,
+                float density,
+                int minSpacing,
+                int densitySalt,
+                PropMeshLibrary.PropVariant[] variants
+            )
+            {
+                Biome = biome;
+                SurfaceType = surfaceType;
+                Density = density;
+                MinSpacing = minSpacing;
+                DensitySalt = densitySalt;
+                Variants = variants;
+            }
+        }
 
         private void Awake()
         {
@@ -44,11 +68,67 @@ namespace CubeWorld.World
                     ? _vegetationConfig
                     : ScriptableObject.CreateInstance<VegetationConfig>();
 
-            treeVariants = TreeMeshLibrary.BuildVariants(
-                vegetationConfig,
-                _config != null ? _config.Seed : 1
-            );
-            treeMaterial = CreateTreeMaterial();
+            propMaterial = CreatePropMaterial();
+        }
+
+        private void Start()
+        {
+            int seed =
+                _worldBootstrap != null && _worldBootstrap.Config != null
+                    ? _worldBootstrap.Config.Seed
+                    : _config != null
+                        ? _config.Seed
+                        : 1;
+
+            Mesh[] treeMeshes = TreeMeshLibrary.BuildVariants(vegetationConfig, seed);
+            var forestVariants = new PropMeshLibrary.PropVariant[treeMeshes.Length];
+            float trunkW = TreeMeshLibrary.TrunkWidth * vegetationConfig.TreeVoxelUnit;
+            float trunkH = vegetationConfig.TrunkHeightMax * vegetationConfig.TreeVoxelUnit;
+            for (int i = 0; i < treeMeshes.Length; i++)
+            {
+                forestVariants[i] = new PropMeshLibrary.PropVariant(
+                    treeMeshes[i],
+                    trunkW * 0.85f,
+                    trunkH,
+                    true
+                );
+            }
+
+            families = new[]
+            {
+                new PropFamily(
+                    BiomeType.Forest,
+                    VoxelType.Grass,
+                    vegetationConfig.TreeDensity,
+                    vegetationConfig.TreeMinSpacing,
+                    densitySalt: 0,
+                    forestVariants
+                ),
+                new PropFamily(
+                    BiomeType.Desert,
+                    VoxelType.Sand,
+                    vegetationConfig.DesertPropDensity,
+                    vegetationConfig.DesertPropMinSpacing,
+                    densitySalt: 100,
+                    PropMeshLibrary.BuildDesertVariants(vegetationConfig, seed)
+                ),
+                new PropFamily(
+                    BiomeType.Snow,
+                    VoxelType.Snow,
+                    vegetationConfig.SnowPropDensity,
+                    vegetationConfig.SnowPropMinSpacing,
+                    densitySalt: 200,
+                    PropMeshLibrary.BuildSnowVariants(vegetationConfig, seed)
+                ),
+                new PropFamily(
+                    BiomeType.Swamp,
+                    VoxelType.Grass,
+                    vegetationConfig.SwampPropDensity,
+                    vegetationConfig.SwampPropMinSpacing,
+                    densitySalt: 300,
+                    PropMeshLibrary.BuildSwampVariants(vegetationConfig, seed)
+                ),
+            };
         }
 
         private void OnEnable()
@@ -71,6 +151,7 @@ namespace CubeWorld.World
                 vegetationRoots.ContainsKey(chunkCoord)
                 || _worldBootstrap == null
                 || _config == null
+                || families == null
             )
             {
                 return;
@@ -79,15 +160,13 @@ namespace CubeWorld.World
             var root = new GameObject(
                 $"Vegetation ({chunkCoord.x}, {chunkCoord.y}, {chunkCoord.z})"
             );
-            // Parenté au transform de WorldBootstrap (le référentiel réel du monde,
-            // celui qui porte aussi les chunks de terrain), pas à celui de ce
-            // composant : si le GameObject VegetationSpawner est un jour déplacé
-            // dans l'éditeur, les arbres restent alignés avec le terrain au lieu
-            // d'hériter d'un décalage parasite.
             root.transform.SetParent(_worldBootstrap.transform, false);
             vegetationRoots[chunkCoord] = root;
 
-            PlaceTrees(chunkCoord, root);
+            for (int i = 0; i < families.Length; i++)
+            {
+                PlaceFamily(chunkCoord, root, families[i]);
+            }
         }
 
         private void OnChunkUnloaded(ChunkUnloadedEvent evt)
@@ -100,17 +179,16 @@ namespace CubeWorld.World
             }
         }
 
-        private void PlaceTrees(int3 chunkCoord, GameObject root)
+        private void PlaceFamily(int3 chunkCoord, GameObject root, PropFamily family)
         {
             VoxelWorld world = _worldBootstrap.World;
-            if (world == null || treeVariants.Length == 0)
+            if (world == null || family.Variants == null || family.Variants.Length == 0)
             {
                 return;
             }
 
             int chunkSize = _config.ChunkSize;
             int3 voxelOrigin = chunkCoord * chunkSize;
-
             placedThisChunkBuffer.Clear();
 
             for (int x = 0; x < chunkSize; x++)
@@ -120,21 +198,19 @@ namespace CubeWorld.World
                     int worldX = voxelOrigin.x + x;
                     int worldZ = voxelOrigin.z + z;
 
-                    // Filtre bon marché en premier (rayon d'exclusion + densité,
-                    // aucune lecture de voxel) : la grande majorité des colonnes
-                    // s'arrêtent ici, avant même de lire les voxels générés.
-                    if (!PassesDensityGate(worldX, worldZ))
+                    if (!PassesDensityGate(worldX, worldZ, family.Density, family.DensitySalt))
                     {
                         continue;
                     }
 
                     if (
-                        !TryFindGrassSurfaceInChunk(
+                        !TryFindSurfaceInChunk(
                             world,
                             worldX,
                             worldZ,
                             voxelOrigin.y,
                             chunkSize,
+                            family.SurfaceType,
                             out int surfaceHeight
                         )
                     )
@@ -143,35 +219,93 @@ namespace CubeWorld.World
                     }
 
                     if (
-                        !IsSpacingOk(worldX, worldZ)
-                        || world.GetBiome(worldX, worldZ) != BiomeType.Forest
+                        !IsSpacingOk(worldX, worldZ, family.MinSpacing)
+                        || world.GetBiome(worldX, worldZ) != family.Biome
+                    )
+                    {
+                        continue;
+                    }
+
+                    int variantIndex = (int)(
+                        HashToUnit(worldX, worldZ, family.DensitySalt + 1) * family.Variants.Length
+                    );
+                    variantIndex = Mathf.Clamp(variantIndex, 0, family.Variants.Length - 1);
+                    PropMeshLibrary.PropVariant variant = family.Variants[variantIndex];
+
+                    int plantHeight = surfaceHeight;
+                    if (
+                        variant.UseSlopePlant
+                        && !TryGetStablePlantHeight(
+                            world,
+                            worldX,
+                            worldZ,
+                            surfaceHeight,
+                            out plantHeight
+                        )
                     )
                     {
                         continue;
                     }
 
                     placedThisChunkBuffer.Add(new Vector2Int(worldX, worldZ));
-                    SpawnTree(root, worldX, surfaceHeight, worldZ);
+                    SpawnProp(root, worldX, plantHeight, worldZ, family, variant);
                 }
             }
         }
 
-        // Cherche un voxel Grass exposé dans les seules limites verticales de ce
-        // chunk, en lisant directement les voxels déjà générés (world.GetVoxel,
-        // un accès tableau) plutôt qu'en rééchantillonnant le bruit fractal du
-        // terrain (world.GetSurfaceHeight) pour les 1024 colonnes de chaque
-        // chunk matérialisé — bien trop coûteux sur le thread principal et
-        // responsable d'un vrai temps de chargement ressenti. Descend depuis le
-        // haut du chunk et s'arrête au premier voxel non-air (couche unique,
-        // pas de surplomb possible dans ce générateur) : cette pile appartient
-        // à un autre chunk vertical de la colonne dès qu'un solide non-Grass
-        // apparaît (désert/neige/pierre) ou que le chunk entier est vide.
-        private static bool TryFindGrassSurfaceInChunk(
+        private bool TryGetStablePlantHeight(
+            VoxelWorld world,
+            int worldX,
+            int worldZ,
+            int centerSurfaceHeight,
+            out int plantHeight
+        )
+        {
+            const int footprintRadius = 1;
+            const int maxSlopeVoxels = 2;
+
+            int minHeight = centerSurfaceHeight;
+            int maxHeight = centerSurfaceHeight;
+
+            for (int dz = -footprintRadius; dz <= footprintRadius; dz++)
+            {
+                for (int dx = -footprintRadius; dx <= footprintRadius; dx++)
+                {
+                    if (dx == 0 && dz == 0)
+                    {
+                        continue;
+                    }
+
+                    int h = world.GetSurfaceHeight(worldX + dx, worldZ + dz);
+                    if (h < minHeight)
+                    {
+                        minHeight = h;
+                    }
+
+                    if (h > maxHeight)
+                    {
+                        maxHeight = h;
+                    }
+                }
+            }
+
+            if (maxHeight - minHeight > maxSlopeVoxels)
+            {
+                plantHeight = 0;
+                return false;
+            }
+
+            plantHeight = minHeight;
+            return true;
+        }
+
+        private static bool TryFindSurfaceInChunk(
             VoxelWorld world,
             int worldX,
             int worldZ,
             int chunkOriginY,
             int chunkSize,
+            VoxelType surfaceType,
             out int surfaceHeight
         )
         {
@@ -185,7 +319,7 @@ namespace CubeWorld.World
                     continue;
                 }
 
-                if (voxel.Type == VoxelType.Grass)
+                if (voxel.Type == surfaceType)
                 {
                     surfaceHeight = worldY;
                     return true;
@@ -198,21 +332,19 @@ namespace CubeWorld.World
             return false;
         }
 
-        // Aucune lecture de voxel : purement arithmétique, sûr d'appeler pour
-        // les 1024 colonnes d'un chunk sans impact mesurable.
-        private bool PassesDensityGate(int worldX, int worldZ)
+        private bool PassesDensityGate(int worldX, int worldZ, float density, int salt)
         {
             if (worldX * worldX + worldZ * worldZ < _spawnExclusionRadius * _spawnExclusionRadius)
             {
                 return false;
             }
 
-            return HashToUnit(worldX, worldZ, 0) < vegetationConfig.TreeDensity;
+            return HashToUnit(worldX, worldZ, salt) < density;
         }
 
-        private bool IsSpacingOk(int worldX, int worldZ)
+        private bool IsSpacingOk(int worldX, int worldZ, int minSpacing)
         {
-            int minSpacingSq = vegetationConfig.TreeMinSpacing * vegetationConfig.TreeMinSpacing;
+            int minSpacingSq = minSpacing * minSpacing;
 
             foreach (Vector2Int placed in placedThisChunkBuffer)
             {
@@ -227,40 +359,54 @@ namespace CubeWorld.World
             return true;
         }
 
-        private void SpawnTree(GameObject root, int worldX, int surfaceHeight, int worldZ)
+        private void SpawnProp(
+            GameObject root,
+            int worldX,
+            int surfaceHeight,
+            int worldZ,
+            PropFamily family,
+            PropMeshLibrary.PropVariant variant
+        )
         {
-            int variantIndex = (int)(HashToUnit(worldX, worldZ, 1) * treeVariants.Length);
-            variantIndex = Mathf.Clamp(variantIndex, 0, treeVariants.Length - 1);
-            float rotationY = HashToUnit(worldX, worldZ, 2) * 360f;
+            float rotationY = HashToUnit(worldX, worldZ, family.DensitySalt + 2) * 360f;
 
-            var treeObject = new GameObject($"Tree ({worldX}, {surfaceHeight}, {worldZ})");
-            treeObject.transform.SetParent(root.transform, false);
-            // Position convertie en unités monde (voir WorldBootstrap.CreateChunkVisual) ;
-            // le mesh lui-même est déjà à sa taille finale (TreeMeshLibrary utilise
-            // TreeVoxelUnit, indépendant de VoxelSize) — pas d'échelle supplémentaire ici.
-            treeObject.transform.localPosition =
-                new Vector3(worldX, surfaceHeight + 1, worldZ) * _config.VoxelSize;
-            treeObject.transform.localRotation = Quaternion.Euler(0f, rotationY, 0f);
+            var propObject = new GameObject(
+                $"{family.Biome}Prop ({worldX}, {surfaceHeight}, {worldZ})"
+            );
+            propObject.transform.SetParent(root.transform, false);
+            propObject.transform.localPosition =
+                new Vector3(worldX + 0.5f, surfaceHeight + 1, worldZ + 0.5f) * _config.VoxelSize;
+            propObject.transform.localRotation = Quaternion.Euler(0f, rotationY, 0f);
 
-            treeObject.AddComponent<MeshFilter>().sharedMesh = treeVariants[variantIndex];
-            treeObject.AddComponent<MeshRenderer>().sharedMaterial = treeMaterial;
+            propObject.AddComponent<MeshFilter>().sharedMesh = variant.Mesh;
+            propObject.AddComponent<MeshRenderer>().sharedMaterial = propMaterial;
 
-            // Collider simple sur le tronc seulement : bloque le joueur sans le
-            // coût d'un MeshCollider sur un houppier jamais destiné à être miné.
-            float trunkWidth = TreeMeshLibrary.TrunkWidth * vegetationConfig.TreeVoxelUnit;
-            float trunkHeight = vegetationConfig.TrunkHeightMax * vegetationConfig.TreeVoxelUnit;
-            BoxCollider trunkCollider = treeObject.AddComponent<BoxCollider>();
-            trunkCollider.size = new Vector3(trunkWidth, trunkHeight, trunkWidth);
-            trunkCollider.center = new Vector3(0f, trunkHeight * 0.5f, 0f);
+            // Hors du bake NavMesh (voir NavMeshRegionBaker.layerMask) : le joueur
+            // collisionne toujours avec, mais le sommet du tronc n'est plus marchable.
+            int vegetationLayer = LayerMask.NameToLayer("Vegetation");
+            if (vegetationLayer >= 0)
+            {
+                propObject.layer = vegetationLayer;
+            }
+
+            if (variant.HasCollider)
+            {
+                BoxCollider collider = propObject.AddComponent<BoxCollider>();
+                collider.size = new Vector3(
+                    variant.ColliderWidth,
+                    variant.ColliderHeight,
+                    variant.ColliderWidth
+                );
+                collider.center = new Vector3(0f, variant.ColliderHeight * 0.5f, 0f);
+            }
         }
 
-        private static Material CreateTreeMaterial()
+        private static Material CreatePropMaterial()
         {
             Shader shader = Shader.Find("CubeWorld/VoxelTerrain");
             return shader != null ? new Material(shader) : null;
         }
 
-        // Hash déterministe [0, 1), même principe que VoxelPalette/ChunkMeshBuildJob.
         private static float HashToUnit(int x, int z, int salt)
         {
             unchecked

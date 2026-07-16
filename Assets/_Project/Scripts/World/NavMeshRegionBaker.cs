@@ -54,6 +54,16 @@ namespace CubeWorld.World
             surface = surfaceObject.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Volume;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+            // Uniquement le terrain (Default) : les BoxCollider des arbres/props
+            // sont sur "Vegetation" — sinon le NavMesh bake sur le sommet des
+            // troncs et flotte au-dessus de la canopée.
+            surface.layerMask = LayerMask.GetMask("Default");
+
+            // Le volume se définit via center/size en local ; le transform reste
+            // à l'origine. Si on déplaçait le surface au joueur, AddData()
+            // réappliquerait ce décalage et le NavMesh flotterait en l'air.
+            surface.transform.localPosition = Vector3.zero;
+            surface.transform.localRotation = Quaternion.identity;
         }
 
         private void OnEnable()
@@ -162,12 +172,21 @@ namespace CubeWorld.World
         private void Bake(Vector3 center)
         {
             Bounds bounds = ComputeBounds(center);
-            surface.transform.position = bounds.center;
+
+            // center/size = volume en local du surface ; le surface reste à
+            // l'origine *monde* pour que center soit directement en coords monde
+            // (et pour que AddData n'ajoute aucun décalage).
+            surface.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            surface.center = bounds.center;
             surface.size = bounds.size;
 
             if (navMeshData == null)
             {
-                navMeshData = new NavMeshData();
+                navMeshData = new NavMeshData(surface.agentTypeID)
+                {
+                    position = Vector3.zero,
+                    rotation = Quaternion.identity,
+                };
                 surface.navMeshData = navMeshData;
                 surface.AddData();
             }

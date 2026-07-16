@@ -38,8 +38,14 @@ namespace CubeWorld.World
         [Tooltip("Meshes de chunks matérialisés par frame (les plus proches d'abord). Lisse le coût de création des meshes sur plusieurs frames au lieu d'un pic.")]
         [SerializeField] private int _meshesPerFrame = 4;
 
-        [Tooltip("Place la cible au-dessus du terrain au démarrage.")]
+        [Tooltip("Place la cible sur le sol au démarrage (hauteur de surface procédurale).")]
         [SerializeField] private bool _placeTargetAboveTerrain = true;
+
+        [Header("Ciel")]
+        [Tooltip("Applique un ciel bleu uni sur la caméra principale au démarrage.")]
+        [SerializeField] private bool _applyBlueSky = true;
+
+        [SerializeField] private Color _skyColor = new(0.45f, 0.72f, 0.95f, 1f);
 
         private WorldConfig config;
         private Material terrainMaterial;
@@ -64,7 +70,26 @@ namespace CubeWorld.World
 
         private void Awake()
         {
-            config = _config != null ? _config : ScriptableObject.CreateInstance<WorldConfig>();
+            // Copie runtime si seed random : évite de saloper l'asset WorldConfig sur disque.
+            bool randomizeSeed = _config != null && _config.RandomizeSeedOnStart;
+
+            if (_config != null)
+            {
+                config = randomizeSeed ? Instantiate(_config) : _config;
+            }
+            else
+            {
+                config = ScriptableObject.CreateInstance<WorldConfig>();
+                randomizeSeed = config.RandomizeSeedOnStart;
+            }
+
+            if (randomizeSeed)
+            {
+                int seed = UnityEngine.Random.Range(1, int.MaxValue);
+                config.SetSeed(seed);
+                Debug.Log($"[CubeWorld] Seed monde : {seed}");
+            }
+
             terrainMaterial = _terrainMaterial != null ? _terrainMaterial : CreateDefaultMaterial("CubeWorld/VoxelTerrain");
             waterMaterial = _waterMaterial != null ? _waterMaterial : CreateDefaultMaterial("CubeWorld/VoxelWater");
             vegetationConfig = _vegetationConfig != null ? _vegetationConfig : ScriptableObject.CreateInstance<VegetationConfig>();
@@ -79,11 +104,33 @@ namespace CubeWorld.World
 
         private void Start()
         {
+            if (_applyBlueSky)
+            {
+                ApplyBlueSky();
+            }
+
             if (_placeTargetAboveTerrain && ViewTarget is { } target)
             {
+                // Haut du voxel de surface (même convention que VegetationSpawner).
                 int surfaceHeight = world.GetSurfaceHeight(0, 0);
-                target.position = new Vector3(0f, surfaceHeight * config.VoxelSize + 20f, 0f);
+                float groundY = (surfaceHeight + 1) * config.VoxelSize;
+                target.position = new Vector3(0f, groundY, 0f);
             }
+        }
+
+        private void ApplyBlueSky()
+        {
+            Camera camera = Camera.main;
+            if (camera != null)
+            {
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = _skyColor;
+            }
+
+            // Ambiance un peu plus claire pour que le monde ne reste pas gris.
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = Color.Lerp(_skyColor, Color.white, 0.35f);
+            RenderSettings.fog = false;
         }
 
         private void Update()
@@ -126,6 +173,9 @@ namespace CubeWorld.World
 
         /// <summary>Le monde métier (voxels, biomes...). Public pour VegetationSpawner.</summary>
         public VoxelWorld World => world;
+
+        /// <summary>Config runtime effective (seed éventuellement randomisée).</summary>
+        public WorldConfig Config => config;
 
         /// <summary>Cible autour de laquelle le monde streame (voir SetViewTarget). Public pour NavMeshRegionBaker.</summary>
         public Transform ViewTarget

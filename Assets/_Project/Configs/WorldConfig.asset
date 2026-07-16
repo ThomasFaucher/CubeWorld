@@ -17,6 +17,7 @@ MonoBehaviour:
   _viewDistance: 4
   _verticalViewDistance: 4
   _seed: 55
+  _randomizeSeedOnStart: 1
   _noiseScale: 0.008
   _maxTerrainHeight: 96
   _seaLevel: 30
