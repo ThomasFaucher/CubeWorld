@@ -17,7 +17,15 @@ namespace CubeWorld.Player
         public bool CanCraft(CraftingRecipeDefinition recipe) =>
             craftingSystem.CanCraft(inventory.Contents, recipe);
 
-        public bool TryCraft(CraftingRecipeDefinition recipe) =>
-            craftingSystem.TryCraft(inventory.Contents, recipe);
+        public bool TryCraft(CraftingRecipeDefinition recipe)
+        {
+            if (!craftingSystem.TryCraft(inventory.Contents, recipe))
+            {
+                return false;
+            }
+
+            inventory.NotifyContentsChanged();
+            return true;
+        }
     }
 }

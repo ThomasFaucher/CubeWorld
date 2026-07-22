@@ -17,11 +17,16 @@ namespace CubeWorld.Player
         private float yaw;
         private float pitch;
 
-        private void Start()
+        private void OnEnable()
         {
+            // Reprendre l'orientation actuelle (ex. sortie de Cinemachine → vol).
             Vector3 euler = transform.eulerAngles;
             yaw = euler.y;
             pitch = euler.x;
+            if (pitch > 180f)
+            {
+                pitch -= 360f;
+            }
         }
 
         private void Update()

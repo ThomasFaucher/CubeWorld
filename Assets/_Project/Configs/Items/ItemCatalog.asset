@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a8c3e1f204b64d7e9f1a2b3c4d5e6f70, type: 3}
+  m_Name: ItemCatalog
+  m_EditorClassIdentifier: CubeWorld.Combat::CubeWorld.Combat.ItemCatalog
+  _items:
+  - {fileID: 11400000, guid: 6f0ad9be651cfe540b50fd3c96eda56a, type: 2}
+  - {fileID: 11400000, guid: d847e06a95d2e394183382807c6d3c6d, type: 2}
+  - {fileID: 11400000, guid: 9166d4494884f764cae0899cda69eaad, type: 2}
+  - {fileID: 11400000, guid: 5c0a63e21af98174f84a78495ebcb09d, type: 2}
+  - {fileID: 11400000, guid: d26062dfe0c5c0b429b998dd9fe734be, type: 2}
+  - {fileID: 11400000, guid: 58800f5f2d620a344aefc3443aa14eb7, type: 2}

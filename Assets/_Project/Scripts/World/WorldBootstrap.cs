@@ -283,7 +283,12 @@ namespace CubeWorld.World
                 pendingMeshes.Remove(coord);
                 pending.Handle.Complete();
 
-                MaterializeChunk(pending.Chunk, pending.Opaque, pending.Water, pending.Foliage);
+                // Chunk déchargé entre la fin du job et la matérialisation :
+                // ne pas recréer un visual orphelin.
+                if (world.HasChunk(coord))
+                {
+                    MaterializeChunk(pending.Chunk, pending.Opaque, pending.Water, pending.Foliage);
+                }
 
                 pending.Opaque.Dispose();
                 pending.Water.Dispose();

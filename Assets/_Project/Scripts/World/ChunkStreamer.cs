@@ -102,6 +102,14 @@ namespace CubeWorld.World
 
             foreach (int2 column in dirtyColumns)
             {
+                // Une colonne peut avoir été ajoutée à dirty puis déchargée dans
+                // le même Process() (voisin d'une colonne unload). Ne pas la
+                // ressusciter via RequestChunk — sinon meshes orphelines en traînée.
+                if (!loadedColumns.Contains(column))
+                {
+                    continue;
+                }
+
                 for (int cy = 0; cy < config.VerticalChunkCount; cy++)
                 {
                     onChunkMeshDirty(world.RequestChunk(new int3(column.x, cy, column.y)));
@@ -171,6 +179,8 @@ namespace CubeWorld.World
             foreach (int2 column in unloadBuffer)
             {
                 loadedColumns.Remove(column);
+                dirtyColumns.Remove(column);
+
                 for (int cy = 0; cy < config.VerticalChunkCount; cy++)
                 {
                     var coord = new int3(column.x, cy, column.y);
@@ -178,8 +188,9 @@ namespace CubeWorld.World
                     onChunkUnloaded(coord);
                 }
 
-                // Les colonnes voisines encore chargées perdent un voisin solide :
-                // leurs faces bordant la colonne déchargée doivent réapparaître.
+                // Les colonnes voisines encore chargées (et non prévues à l'unload)
+                // perdent un voisin solide : leurs faces bordant la colonne
+                // déchargée doivent réapparaître.
                 foreach (int2 offset in NeighborOffsets)
                 {
                     int2 neighbor = column + offset;

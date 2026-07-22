@@ -5,13 +5,17 @@ namespace CubeWorld.World
 {
     /// <summary>
     /// Système de nuages, indépendant du streaming de chunks : un pool fixe de
-    /// nuages en mini-cubes qui dérivent au vent et se recyclent en sortant du
-    /// rayon de vue (voir <see cref="CloudField"/>). Lit
+    /// nuages en mini-cubes qui dérivent au vent et se wrappent autour de la
+    /// cible de vue (voir <see cref="CloudField"/>). Lit
     /// <see cref="WorldBootstrap.ViewTarget"/> directement, comme
     /// <see cref="NavMeshRegionBaker"/> : World ne doit jamais dépendre de Player.
     /// </summary>
     public sealed class CloudSystem : MonoBehaviour
     {
+        // Au-delà de ce ratio du demi-côté de wrap, le renderer est coupé :
+        // le téléport toroïdal a lieu hors écran.
+        private const float VisibleRadiusFactor = 0.78f;
+
         [Header("Références")]
         [SerializeField]
         private WorldBootstrap _worldBootstrap;
@@ -24,14 +28,19 @@ namespace CubeWorld.World
         private Mesh[] cloudVariants;
         private Transform[] cloudTransforms;
         private MeshFilter[] cloudFilters;
+        private MeshRenderer[] cloudRenderers;
         private CloudField field;
         private Random rng;
+        private float visibleRadiusSq;
 
         private void Awake()
         {
             config = _config != null ? _config : ScriptableObject.CreateInstance<CloudConfig>();
             cloudMaterial = CreateCloudMaterial();
             cloudVariants = BuildCloudVariants(config);
+
+            float visibleRadius = config.RecycleRadius * VisibleRadiusFactor;
+            visibleRadiusSq = visibleRadius * visibleRadius;
 
             // Graine fixe : les nuages sont purement décoratifs, pas besoin de
             // les faire dépendre de WorldConfig.Seed (contrairement au terrain).
@@ -49,9 +58,10 @@ namespace CubeWorld.World
             }
 
             Vector2 windVelocity = config.WindDirection.normalized * config.WindSpeed;
-            field.Advance(Time.deltaTime, windVelocity, GetViewCenterXZ(), config, ref rng);
+            Vector2 viewCenterXZ = GetViewCenterXZ();
+            field.Advance(Time.deltaTime, windVelocity, viewCenterXZ, config);
 
-            SyncPool();
+            SyncPool(viewCenterXZ);
         }
 
         private Vector2 GetViewCenterXZ()
@@ -67,29 +77,38 @@ namespace CubeWorld.World
             CloudField.CloudInstance[] clouds = field.Clouds;
             cloudTransforms = new Transform[clouds.Length];
             cloudFilters = new MeshFilter[clouds.Length];
+            cloudRenderers = new MeshRenderer[clouds.Length];
+
+            Vector2 viewCenterXZ = GetViewCenterXZ();
 
             for (int i = 0; i < clouds.Length; i++)
             {
                 var cloudObject = new GameObject($"Cloud {i}");
                 cloudObject.transform.SetParent(transform, false);
                 cloudObject.transform.position = clouds[i].Position;
+                cloudObject.transform.localScale = Vector3.one * clouds[i].Scale;
 
                 var filter = cloudObject.AddComponent<MeshFilter>();
                 filter.sharedMesh = VariantFor(clouds[i]);
-                cloudObject.AddComponent<MeshRenderer>().sharedMaterial = cloudMaterial;
+                var renderer = cloudObject.AddComponent<MeshRenderer>();
+                renderer.sharedMaterial = cloudMaterial;
+                renderer.enabled = IsVisible(clouds[i].Position, viewCenterXZ);
 
                 cloudTransforms[i] = cloudObject.transform;
                 cloudFilters[i] = filter;
+                cloudRenderers[i] = renderer;
             }
         }
 
-        private void SyncPool()
+        private void SyncPool(Vector2 viewCenterXZ)
         {
             CloudField.CloudInstance[] clouds = field.Clouds;
 
             for (int i = 0; i < clouds.Length; i++)
             {
                 cloudTransforms[i].position = clouds[i].Position;
+                cloudTransforms[i].localScale = Vector3.one * clouds[i].Scale;
+                cloudRenderers[i].enabled = IsVisible(clouds[i].Position, viewCenterXZ);
 
                 Mesh variant = VariantFor(clouds[i]);
                 if (cloudFilters[i].sharedMesh != variant)
@@ -97,6 +116,13 @@ namespace CubeWorld.World
                     cloudFilters[i].sharedMesh = variant;
                 }
             }
+        }
+
+        private bool IsVisible(Vector3 position, Vector2 viewCenterXZ)
+        {
+            float dx = position.x - viewCenterXZ.x;
+            float dz = position.z - viewCenterXZ.y;
+            return (dx * dx) + (dz * dz) <= visibleRadiusSq;
         }
 
         private Mesh VariantFor(CloudField.CloudInstance cloud)
@@ -119,27 +145,36 @@ namespace CubeWorld.World
             return meshes;
         }
 
+        // Plusieurs blobs sphériques décalés : formes plus organiques que
+        // une seule sphère aplatie.
         private static Mesh BuildCloudVariant(CloudConfig config, ref Random rng, int variantIndex)
         {
             var mesh = new VoxelCubeMeshData();
-
-            int sizeX = rng.NextInt(6, 9);
-            int sizeZ = rng.NextInt(6, 9);
-            int sizeY = Mathf.Max(2, sizeX / 3);
-
             var color = new Color32(240, 240, 245, 255);
 
-            VoxelCubeMeshBuilder.AddPart(
-                mesh,
-                new Vector3Int(-sizeX / 2, -sizeY / 2, -sizeZ / 2),
-                sizeX,
-                sizeY,
-                sizeZ,
-                VoxelCubeShape.Sphere,
-                color,
-                config.CloudUnit,
-                (int)rng.NextUInt()
-            );
+            int blobCount = rng.NextInt(2, 6);
+            for (int b = 0; b < blobCount; b++)
+            {
+                int sizeX = rng.NextInt(4, 11);
+                int sizeZ = rng.NextInt(4, 11);
+                int sizeY = Mathf.Max(2, rng.NextInt(2, Mathf.Max(3, sizeX / 2)));
+
+                int offsetX = rng.NextInt(-5, 6);
+                int offsetY = rng.NextInt(-1, 2);
+                int offsetZ = rng.NextInt(-5, 6);
+
+                VoxelCubeMeshBuilder.AddPart(
+                    mesh,
+                    new Vector3Int(offsetX - (sizeX / 2), offsetY - (sizeY / 2), offsetZ - (sizeZ / 2)),
+                    sizeX,
+                    sizeY,
+                    sizeZ,
+                    VoxelCubeShape.Sphere,
+                    color,
+                    config.CloudUnit,
+                    (int)rng.NextUInt()
+                );
+            }
 
             return mesh.ToMesh($"CloudVariant_{variantIndex}");
         }

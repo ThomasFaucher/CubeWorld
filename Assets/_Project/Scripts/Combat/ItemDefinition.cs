@@ -3,9 +3,8 @@ using UnityEngine;
 namespace CubeWorld.Combat
 {
     /// <summary>
-    /// Définition d'un objet ramassable. Pas d'icône/inventaire pour l'instant
-    /// (Phase 4) : juste de quoi représenter l'objet dans le monde et l'identifier
-    /// dans les events (voir ItemPickedUpEvent).
+    /// Définition d'un objet ramassable : identité, stack, équipement optionnel,
+    /// couleur monde (loot) et icône inventaire.
     /// </summary>
     [CreateAssetMenu(fileName = "ItemDefinition", menuName = "CubeWorld/Item Definition")]
     public sealed class ItemDefinition : ScriptableObject
@@ -24,6 +23,10 @@ namespace CubeWorld.Combat
         private Color _color = Color.white;
 
         [Header("Inventaire")]
+        [Tooltip("Icône affichée dans l'UI d'inventaire. Si vide, fallback sur Color.")]
+        [SerializeField]
+        private Sprite _icon;
+
         [SerializeField]
         private ItemCategory _category = ItemCategory.Material;
 
@@ -42,6 +45,7 @@ namespace CubeWorld.Combat
         public string Id => _id;
         public string DisplayName => _displayName;
         public Color Color => _color;
+        public Sprite Icon => _icon;
         public ItemCategory Category => _category;
         public int MaxStackSize => _maxStackSize;
         public WeaponDefinition Weapon => _weapon;

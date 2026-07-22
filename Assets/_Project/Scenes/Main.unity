@@ -2703,6 +2703,7 @@ MonoBehaviour:
   _worldBootstrap: {fileID: 41776634}
   _inputActions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   _startingWeaponItem: {fileID: 11400000, guid: 9166d4494884f764cae0899cda69eaad, type: 2}
+  _itemCatalog: {fileID: 11400000, guid: e7b2c4d6a8f0415293b5c7d9e1f30415, type: 2}
   _playerArchetype: 0
   _characterSeed: 0
   _randomizeSeedOnSpawn: 1

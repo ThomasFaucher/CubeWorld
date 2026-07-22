@@ -26,6 +26,9 @@ namespace CubeWorld.Player
         [Tooltip("Item (Category = Weapon) équipé par défaut au démarrage.")]
         [SerializeField] private ItemDefinition _startingWeaponItem;
 
+        [Tooltip("Catalogue Id → ItemDefinition pour le save/load inventaire.")]
+        [SerializeField] private ItemCatalog _itemCatalog;
+
         [Header("Apparence")]
         [Tooltip("Silhouette voxel du joueur (couleurs + accessoires).")]
         [SerializeField]
@@ -71,12 +74,25 @@ namespace CubeWorld.Player
 
             var health = playerObject.AddComponent<PlayerHealth>();
             var inventory = playerObject.AddComponent<PlayerInventory>();
+            var hotbar = playerObject.AddComponent<PlayerHotbar>();
+            hotbar.Bind(inventory);
             var equipment = playerObject.AddComponent<PlayerEquipment>();
             equipment.Bind(inventory, health);
 
-            if (_startingWeaponItem != null && inventory.Contents.TryAdd(_startingWeaponItem, 1))
+            var saveService = playerObject.AddComponent<InventorySaveService>();
+            saveService.Bind(_itemCatalog, inventory, equipment, hotbar);
+
+            bool loaded = _itemCatalog != null && saveService.TryLoad();
+            if (!loaded && _startingWeaponItem != null && inventory.TryAdd(_startingWeaponItem, 1))
             {
                 equipment.EquipWeapon(_startingWeaponItem);
+            }
+
+            if (_itemCatalog == null)
+            {
+                Debug.LogWarning(
+                    "[CubeWorld] PlayerBootstrap : _itemCatalog non assigné — pas de save/load inventaire."
+                );
             }
 
             playerObject.AddComponent<PlayerCombat>().BindInput(_inputActions, equipment);
@@ -115,6 +131,13 @@ namespace CubeWorld.Player
 
         private void SetFlyMode(bool isFlyMode)
         {
+            // Quitter le vol : ramener le joueur sous la caméra avant de
+            // réactiver le contrôle (sinon on « téléporte » visuellement en arrière).
+            if (!isFlyMode && flyMode)
+            {
+                SnapPlayerToCamera();
+            }
+
             flyMode = isFlyMode;
 
             if (player != null)
@@ -135,6 +158,45 @@ namespace CubeWorld.Player
             if (flyCamera != null)
             {
                 flyCamera.enabled = isFlyMode;
+            }
+
+            // Le monde streame autour de ViewTarget. En vol libre la caméra part
+            // sans le joueur : il faut suivre la caméra, sinon les chunks restent
+            // collés à l'ancienne position du joueur.
+            SyncWorldViewTarget();
+        }
+
+        private void SnapPlayerToCamera()
+        {
+            if (player == null || Camera.main == null || _worldBootstrap == null)
+            {
+                return;
+            }
+
+            Vector3 camPos = Camera.main.transform.position;
+            int worldX = Mathf.FloorToInt(camPos.x);
+            int worldZ = Mathf.FloorToInt(camPos.z);
+            int surface = _worldBootstrap.World.GetSurfaceHeight(worldX, worldZ);
+            float groundY = (surface + 1) * _worldBootstrap.Config.VoxelSize;
+            player.transform.position = new Vector3(camPos.x, groundY + 0.1f, camPos.z);
+        }
+
+        private void SyncWorldViewTarget()
+        {
+            if (_worldBootstrap == null)
+            {
+                return;
+            }
+
+            if (flyMode && Camera.main != null)
+            {
+                _worldBootstrap.SetViewTarget(Camera.main.transform);
+                return;
+            }
+
+            if (player != null)
+            {
+                _worldBootstrap.SetViewTarget(player.transform);
             }
         }
     }

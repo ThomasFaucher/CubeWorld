@@ -12,13 +12,13 @@ namespace CubeWorld.World
         [Header("Pool")]
         [Tooltip("Nombre de nuages en pool fixe.")]
         [SerializeField]
-        private int _cloudCount = 40;
+        private int _cloudCount = 120;
 
         [Tooltip(
             "Nombre de meshes de nuage pré-construits (variété visuelle, partagés entre les instances)."
         )]
         [SerializeField]
-        private int _cloudVariantCount = 4;
+        private int _cloudVariantCount = 14;
 
         [Tooltip(
             "Taille d'un mini-cube de nuage, en unités monde (plus gros que les mini-cubes d'arbre pour rester lisible de loin)."
@@ -47,10 +47,10 @@ namespace CubeWorld.World
         private float _altitudeMax = 120f;
 
         [Tooltip(
-            "Distance XZ à la cible au-delà de laquelle un nuage est recyclé — c'est aussi la distance à laquelle les nuages apparaissent à l'horizon."
+            "Demi-côté du carré de wrap autour de la cible (XZ). Les nuages restent dans ce champ ; le rendu est coupé avant le bord pour masquer le wrap."
         )]
         [SerializeField]
-        private float _recycleRadius = 450f;
+        private float _recycleRadius = 420f;
 
         public int CloudCount => _cloudCount;
         public int CloudVariantCount => _cloudVariantCount;

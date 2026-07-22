@@ -1,4 +1,5 @@
 using CubeWorld.Combat;
+using CubeWorld.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -36,9 +37,13 @@ namespace CubeWorld.Player
             }
 
             // Inventaire plein : le pickup reste au sol, rien n'est perdu.
-            if (inventory.Contents.TryAdd(nearest.Item, nearest.Quantity))
+            if (inventory.TryAdd(nearest.Item, nearest.Quantity))
             {
                 nearest.Collect();
+            }
+            else
+            {
+                EventBus.Publish(new InventoryFullEvent());
             }
         }
 

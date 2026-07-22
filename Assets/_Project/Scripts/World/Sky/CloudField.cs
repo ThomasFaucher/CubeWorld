@@ -1,13 +1,12 @@
-using Unity.Mathematics;
 using UnityEngine;
 using Random = Unity.Mathematics.Random;
 
 namespace CubeWorld.World
 {
     /// <summary>
-    /// Dérive et recyclage des nuages, indépendant d'Unity (comme PlayerMotor) :
-    /// calcule chaque frame la nouvelle position de chaque nuage, et le replace
-    /// contre le vent quand il sort du rayon de vue.
+    /// Dérive des nuages autour de la cible de vue : wrap toroïdal sur un carré
+    /// centré sur le joueur (densité constante quand on avance, pas de respawn
+    /// visible contre le vent).
     /// </summary>
     internal sealed class CloudField
     {
@@ -16,24 +15,24 @@ namespace CubeWorld.World
             public Vector3 Position;
             public int VariantIndex;
             public float SpeedMultiplier;
+            public float Scale;
         }
 
         private readonly CloudInstance[] clouds;
 
         public CloudField(CloudConfig config, Vector2 viewCenterXZ, ref Random rng)
         {
+            float halfExtent = config.RecycleRadius;
             clouds = new CloudInstance[Mathf.Max(1, config.CloudCount)];
 
             for (int i = 0; i < clouds.Length; i++)
             {
                 CloudInstance cloud = CreateCloud(config, ref rng);
 
-                // Répartition initiale dans tout le disque de vue (pas
-                // seulement au bord) : le ciel est déjà couvert au démarrage.
-                float radius = rng.NextFloat(0f, config.RecycleRadius);
-                float angle = rng.NextFloat(0f, math.PI * 2f);
-                cloud.Position.x = viewCenterXZ.x + (math.cos(angle) * radius);
-                cloud.Position.z = viewCenterXZ.y + (math.sin(angle) * radius);
+                // Répartition uniforme dans le carré de wrap (pas un disque
+                // biaisé vers le centre) pour couvrir tout le ciel.
+                cloud.Position.x = viewCenterXZ.x + rng.NextFloat(-halfExtent, halfExtent);
+                cloud.Position.z = viewCenterXZ.y + rng.NextFloat(-halfExtent, halfExtent);
 
                 clouds[i] = cloud;
             }
@@ -41,56 +40,56 @@ namespace CubeWorld.World
 
         public CloudInstance[] Clouds => clouds;
 
-        public void Advance(
-            float deltaTime,
-            Vector2 windVelocity,
-            Vector2 viewCenterXZ,
-            CloudConfig config,
-            ref Random rng
-        )
+        public void Advance(float deltaTime, Vector2 windVelocity, Vector2 viewCenterXZ, CloudConfig config)
         {
-            float recycleRadiusSq = config.RecycleRadius * config.RecycleRadius;
+            float halfExtent = config.RecycleRadius;
+            float wrapSize = halfExtent * 2f;
             var windMove = new Vector3(windVelocity.x, 0f, windVelocity.y);
 
             for (int i = 0; i < clouds.Length; i++)
             {
                 CloudInstance cloud = clouds[i];
                 cloud.Position += windMove * (cloud.SpeedMultiplier * deltaTime);
-
-                var positionXZ = new Vector2(cloud.Position.x, cloud.Position.z);
-                if ((positionXZ - viewCenterXZ).sqrMagnitude > recycleRadiusSq)
-                {
-                    cloud = Recycle(cloud, config, viewCenterXZ, windVelocity, ref rng);
-                }
-
+                cloud.Position = WrapAroundView(cloud.Position, viewCenterXZ, halfExtent, wrapSize);
                 clouds[i] = cloud;
             }
         }
 
-        // Replace le nuage contre le vent (bord du disque côté d'où vient le
-        // vent), avec un décalage tangentiel aléatoire pour ne pas faire
-        // réapparaître plusieurs nuages recyclés alignés au même endroit.
-        private static CloudInstance Recycle(
-            CloudInstance cloud,
-            CloudConfig config,
+        // Ramène le nuage dans [-half, half] relatif à la vue, sans changer
+        // variante / échelle : le wrap est invisible si le rendu est culled
+        // avant le bord (voir CloudSystem).
+        private static Vector3 WrapAroundView(
+            Vector3 position,
             Vector2 viewCenterXZ,
-            Vector2 windVelocity,
-            ref Random rng
+            float halfExtent,
+            float wrapSize
         )
         {
-            Vector2 windDirection =
-                windVelocity.sqrMagnitude > 0.0001f ? windVelocity.normalized : Vector2.right;
-            Vector2 upwind = -windDirection * config.RecycleRadius;
-            var tangent = new Vector2(-windDirection.y, windDirection.x);
-            float tangentOffset = rng.NextFloat(-config.RecycleRadius, config.RecycleRadius);
+            float x = position.x - viewCenterXZ.x;
+            float z = position.z - viewCenterXZ.y;
 
-            Vector2 newPositionXZ = viewCenterXZ + upwind + (tangent * tangentOffset);
+            // while : couvre un gros saut de caméra (téléport debug) en une frame.
+            while (x > halfExtent)
+            {
+                x -= wrapSize;
+            }
 
-            cloud.Position = new Vector3(newPositionXZ.x, cloud.Position.y, newPositionXZ.y);
-            cloud.VariantIndex = rng.NextInt(0, Mathf.Max(1, config.CloudVariantCount));
-            cloud.SpeedMultiplier = rng.NextFloat(0.9f, 1.1f);
+            while (x < -halfExtent)
+            {
+                x += wrapSize;
+            }
 
-            return cloud;
+            while (z > halfExtent)
+            {
+                z -= wrapSize;
+            }
+
+            while (z < -halfExtent)
+            {
+                z += wrapSize;
+            }
+
+            return new Vector3(viewCenterXZ.x + x, position.y, viewCenterXZ.y + z);
         }
 
         private static CloudInstance CreateCloud(CloudConfig config, ref Random rng)
@@ -101,7 +100,8 @@ namespace CubeWorld.World
             {
                 Position = new Vector3(0f, altitude, 0f),
                 VariantIndex = rng.NextInt(0, Mathf.Max(1, config.CloudVariantCount)),
-                SpeedMultiplier = rng.NextFloat(0.9f, 1.1f),
+                SpeedMultiplier = rng.NextFloat(0.85f, 1.15f),
+                Scale = rng.NextFloat(0.75f, 1.35f),
             };
         }
     }

@@ -13,6 +13,8 @@ namespace CubeWorld.Player
     /// </summary>
     public sealed class PlayerCameraRig : MonoBehaviour
     {
+        // Pitch négatif = caméra sous la cible → plus de ciel dans le cadre.
+        // Le Decollider (TerrainResolution) empêche de passer sous le sol.
         private const float MinPitch = -30f;
         private const float MaxPitch = 60f;
         private const float DefaultPitch = 15f;
@@ -76,6 +78,23 @@ namespace CubeWorld.Player
             // caméra (OrbitalFollow, elle bien amortie) traîne derrière — d'où le
             // mouvement de caméra bizarre uniquement quand le joueur se déplace.
             rotationComposer.Damping = new Vector2(0.5f, 0.5f);
+
+            // Remonte la caméra au-dessus des MeshCollider des chunks (layer Default)
+            // quand l'orbite voudrait la placer sous le sol — sans bloquer le pitch
+            // négatif qui sert à cadrer le ciel.
+            var decollider = gameObject.AddComponent<CinemachineDecollider>();
+            decollider.CameraRadius = 0.35f;
+            decollider.TerrainResolution = new CinemachineDecollider.TerrainSettings
+            {
+                Enabled = true,
+                TerrainLayers = 1, // Default — colliders des chunks (WorldBootstrap)
+                MaximumRaycast = Mathf.Max(10f, distance + 4f),
+                Damping = 0.15f,
+            };
+            decollider.Decollision = new CinemachineDecollider.DecollisionSettings
+            {
+                Enabled = false,
+            };
 
             InputActionMap map = inputActions.FindActionMap("Player");
             lookAction = map.FindAction("Look");

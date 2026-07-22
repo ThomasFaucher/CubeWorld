@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _chunkSize: 32
   _voxelSize: 0.5
-  _viewDistance: 4
+  _viewDistance: 8
   _verticalViewDistance: 4
   _seed: 55
   _randomizeSeedOnStart: 1
