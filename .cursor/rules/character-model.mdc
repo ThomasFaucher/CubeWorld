@@ -1,0 +1,36 @@
+---
+description: Conventions du système de personnage voxel procédural (CharacterModel)
+globs: Assets/_Project/Scripts/Player/CharacterModel/**,Assets/_Project/Scripts/Player/PlayerController.cs,Assets/_Project/Scripts/Player/PlayerArchetype.cs
+alwaysApply: false
+---
+
+# Personnage voxel chibi (CharacterModel)
+
+Doc complète : `Assets/_Project/Scripts/Player/CharacterModel/README.md` — la lire avant toute
+modification non triviale.
+
+- **Aucune texture/sprite.** Le personnage est 100% généré en code : grille de voxels colorés
+  (`Core/VoxelGrid.cs`) → mesh (`Core/VoxelGridMesher.cs`). Ne jamais proposer d'ajouter une
+  texture/sprite pour "faire un skin" sur ce perso.
+- **Même seed → même personnage.** Tout tirage aléatoire passe par `CharacterRng`
+  (`Generation/CharacterRng.cs`), jamais `UnityEngine.Random` / `System.Random` directement dans un
+  générateur.
+- **Règle de palette (3 valeurs + 1 accent)** : `CharacterPalette` doit garder 3 familles séparées
+  (sombre / clair / moyen identitaire) + UN SEUL accent saturé (`Emblem`). Une palette dérivée d'une
+  seule teinte lit comme un aplat — ne pas casser ça en ajoutant des couleurs random hors de ces
+  familles.
+- **Un seul archétype est réellement implémenté.** `PlayerArchetype` a `Swordsman/Archer/Mage/Elf`
+  mais `CharacterModelBuilder.Build` ignore ce paramètre — tout produit le même héros elfe. Ne pas
+  supposer que changer l'archétype change quoi que ce soit sans l'avoir vérifié dans le code.
+- **Silhouette câblée en dur.** Oreilles pointues, bonnet vert, épée dans le dos sont stampés sans
+  condition dans `HeadGenerator`/`GearGenerator`. Pour de VRAIS types visuels distincts (squelette,
+  robot, anime...), il faut introduire des flags de silhouette explicites et un catalogue de presets
+  figés (pattern `ItemDefinition`/`ItemCatalog` dans `Assets/_Project/Scripts/Combat/`) — pas
+  élargir les plages de `CharacterRng`, qui ne fait que varier des couleurs/proportions en continu,
+  jamais la forme.
+- **Noms d'os/sockets stables** (`Rig/CharacterRigDefinition.cs`) : ne jamais renommer une constante
+  existante (`Hips`, `Torso`, `ArmL`, sockets `Neck`/`ShoulderL`/... ) — un Animator Controller les
+  retrouve par chemin de Transform.
+- **Convention de pivot** : le mesh d'une pièce doit toujours être généré avec son point d'attache à
+  l'origine (voir `VoxelPartMeshBuilder.PivotVoxels` + `VoxelToLocal`), pour rester interchangeable
+  avec les autres pièces via les sockets.
