@@ -159,6 +159,7 @@ namespace CubeWorld.Player
                 version = InventorySaveData.CurrentVersion,
                 slots = new InventorySlotSave[inventory.Capacity],
                 weaponId = IdOf(equipment.WeaponItem),
+                toolId = IdOf(equipment.ToolItem),
                 headId = IdOf(equipment.GetArmor(ArmorSlot.Head)),
                 chestId = IdOf(equipment.GetArmor(ArmorSlot.Chest)),
                 legsId = IdOf(equipment.GetArmor(ArmorSlot.Legs)),
@@ -211,6 +212,7 @@ namespace CubeWorld.Player
 
                 equipment.RestoreEquipped(
                     catalog.GetById(data.weaponId),
+                    catalog.GetById(data.toolId),
                     catalog.GetById(data.headId),
                     catalog.GetById(data.chestId),
                     catalog.GetById(data.legsId)

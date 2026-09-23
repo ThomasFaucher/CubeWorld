@@ -16,5 +16,11 @@ namespace CubeWorld.World
         Snow = 5,
         Water = 6,
         Ice = 7,
+
+        // Minerais : ne remplacent que de la Pierre profonde (voir CaveShape.ApplyOreVein),
+        // rareté croissante avec la profondeur.
+        OreCopper = 8,
+        OreIron = 9,
+        OreGold = 10,
     }
 }

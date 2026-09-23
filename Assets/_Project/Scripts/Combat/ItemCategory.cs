@@ -5,5 +5,8 @@ namespace CubeWorld.Combat
         Material,
         Weapon,
         Armor,
+
+        /// <summary>Outil équipable (ex. pioche) — slot dédié, voir EquipmentSlotKind.Tool.</summary>
+        Tool,
     }
 }

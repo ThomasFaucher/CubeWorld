@@ -42,6 +42,7 @@ namespace CubeWorld.UI
         private Sprite uiSprite;
 
         private EquipSlotUi weaponSlot;
+        private EquipSlotUi toolSlot;
         private EquipSlotUi headSlot;
         private EquipSlotUi chestSlot;
         private EquipSlotUi legsSlot;
@@ -236,6 +237,13 @@ namespace CubeWorld.UI
                 "Arme",
                 "W",
                 new Vector2(0.22f, 0.48f)
+            );
+            toolSlot = CreateEquipSlot(
+                doll.transform,
+                EquipmentSlotKind.Tool,
+                "Outil",
+                "T",
+                new Vector2(0.78f, 0.48f)
             );
             chestSlot = CreateEquipSlot(
                 doll.transform,
@@ -544,6 +552,7 @@ namespace CubeWorld.UI
             }
 
             ApplyEquipSlot(weaponSlot, equipment.WeaponItem);
+            ApplyEquipSlot(toolSlot, equipment.ToolItem);
             ApplyEquipSlot(headSlot, equipment.GetArmor(ArmorSlot.Head));
             ApplyEquipSlot(chestSlot, equipment.GetArmor(ArmorSlot.Chest));
             ApplyEquipSlot(legsSlot, equipment.GetArmor(ArmorSlot.Legs));
@@ -592,6 +601,11 @@ namespace CubeWorld.UI
             if (item.Category == ItemCategory.Armor && item.Armor != null)
             {
                 return $"{item.DisplayName}  ·  +{item.Armor.Defense} def";
+            }
+
+            if (item.Category == ItemCategory.Tool && item.Tool != null)
+            {
+                return item.DisplayName;
             }
 
             return item.DisplayName;

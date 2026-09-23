@@ -7,5 +7,8 @@ namespace CubeWorld.Combat
         Head,
         Chest,
         Legs,
+
+        /// <summary>Outil (ex. pioche), voir ItemCategory.Tool.</summary>
+        Tool,
     }
 }

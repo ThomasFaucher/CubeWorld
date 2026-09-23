@@ -1,3 +1,4 @@
+using CubeWorld.CharacterModel;
 using UnityEngine;
 
 namespace CubeWorld.Combat
@@ -40,15 +41,21 @@ namespace CubeWorld.Combat
         [SerializeField]
         private LootTableDefinition _lootTable;
 
-        [Header("Gabarit (placeholder visuel)")]
+        [Header("Gabarit (collider + génération du personnage)")]
         [SerializeField]
         private float _height = 1.6f;
 
         [SerializeField]
         private float _radius = 0.45f;
 
+        [Header("Visuel")]
+        [Tooltip(
+            "Silhouette/palette du personnage généré (voir Assets/_Project/Scripts/CharacterModel) "
+                + "— même pipeline que le joueur, réutilisé pour les ennemis. Skeleton est le seul "
+                + "preset pensé pour un monstre à ce jour."
+        )]
         [SerializeField]
-        private Color _bodyColor = new(0.6f, 0.15f, 0.15f);
+        private CharacterArchetype _archetype = CharacterArchetype.Skeleton;
 
         public string DisplayName => _displayName;
         public int MaxHP => _maxHP;
@@ -61,6 +68,6 @@ namespace CubeWorld.Combat
         public LootTableDefinition LootTable => _lootTable;
         public float Height => _height;
         public float Radius => _radius;
-        public Color BodyColor => _bodyColor;
+        public CharacterArchetype Archetype => _archetype;
     }
 }

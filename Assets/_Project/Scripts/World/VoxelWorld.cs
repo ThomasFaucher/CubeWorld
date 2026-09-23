@@ -150,6 +150,62 @@ namespace CubeWorld.World
             return chunk.GetVoxel(local.x, local.y, local.z);
         }
 
+        /// <summary>
+        /// Remplace un voxel déjà généré (ex. minage d'une veine de minerai, voir
+        /// CubeWorld.Player.PlayerMining dans l'assemblée CubeWorld.Player, qui ne peut pas
+        /// être référencée ici sans créer une dépendance circulaire) — sans effet si le
+        /// chunk n'est pas chargé. Remplit <paramref name="dirtyChunks"/> (vidé au
+        /// préalable par l'appelant) avec ce chunk et, si le voxel est à sa frontière,
+        /// ses voisins directs concernés : leur mesh a été construit avec un instantané des
+        /// voxels de ce chunk comme voisin, il faut donc les reconstruire eux aussi (voir
+        /// WorldBootstrap.RequestRemesh).
+        /// </summary>
+        public bool TrySetVoxel(int3 worldPosition, Voxel voxel, List<int3> dirtyChunks)
+        {
+            int size = config.ChunkSize;
+            var coord = (int3)math.floor((float3)worldPosition / size);
+
+            if (!chunks.TryGetValue(coord, out Chunk chunk))
+            {
+                return false;
+            }
+
+            // Même garantie que GetVoxel : la génération doit être terminée avant d'écrire.
+            if (generationHandles.TryGetValue(coord, out JobHandle handle))
+            {
+                handle.Complete();
+            }
+
+            int3 local = worldPosition - (coord * size);
+            chunk.SetVoxel(local.x, local.y, local.z, voxel);
+
+            dirtyChunks.Add(coord);
+            AddNeighborIfAtBoundary(dirtyChunks, coord, local.x, size, new int3(-1, 0, 0), new int3(1, 0, 0));
+            AddNeighborIfAtBoundary(dirtyChunks, coord, local.y, size, new int3(0, -1, 0), new int3(0, 1, 0));
+            AddNeighborIfAtBoundary(dirtyChunks, coord, local.z, size, new int3(0, 0, -1), new int3(0, 0, 1));
+
+            return true;
+        }
+
+        private static void AddNeighborIfAtBoundary(
+            List<int3> dirtyChunks,
+            int3 coord,
+            int localComponent,
+            int size,
+            int3 offsetAtZero,
+            int3 offsetAtMax
+        )
+        {
+            if (localComponent == 0)
+            {
+                dirtyChunks.Add(coord + offsetAtZero);
+            }
+            else if (localComponent == size - 1)
+            {
+                dirtyChunks.Add(coord + offsetAtMax);
+            }
+        }
+
         /// <summary>Hauteur de la surface en (x, z) monde — utile pour placer caméra et joueur.</summary>
         public int GetSurfaceHeight(int worldX, int worldZ)
         {

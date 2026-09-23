@@ -42,6 +42,10 @@ namespace CubeWorld.Combat
         [SerializeField]
         private ArmorDefinition _armor;
 
+        [Tooltip("Requis si Category = Tool.")]
+        [SerializeField]
+        private ToolDefinition _tool;
+
         public string Id => _id;
         public string DisplayName => _displayName;
         public Color Color => _color;
@@ -50,5 +54,6 @@ namespace CubeWorld.Combat
         public int MaxStackSize => _maxStackSize;
         public WeaponDefinition Weapon => _weapon;
         public ArmorDefinition Armor => _armor;
+        public ToolDefinition Tool => _tool;
     }
 }

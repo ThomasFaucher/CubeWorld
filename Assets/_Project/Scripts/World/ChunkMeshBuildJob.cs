@@ -7,14 +7,19 @@ using UnityEngine;
 namespace CubeWorld.World
 {
     /// <summary>
-    /// Job Burst qui transforme les voxels d'un chunk en mesh : pour chaque voxel
-    /// solide, seules les faces exposées à l'air sont générées (face culling).
-    /// Chaque face a ses 4 sommets propres avec une normale de face — c'est ce
-    /// qui donne le rendu flat shading. La couleur du voxel est écrite dans les
-    /// couleurs de vertex. Les 6 voisins directs sont fournis à part : un voisin
-    /// non chargé (tableau vide, longueur 0) est traité comme de l'air.
-    /// Les faces d'eau sont émises dans un second jeu de buffers (mesh à part,
-    /// rendu avec un matériau transparent) plutôt que dans le mesh opaque.
+    /// Job Burst qui transforme les voxels d'un chunk en mesh : les faces
+    /// exposées à l'air (ou à l'eau) sont fusionnées en rectangles par un
+    /// greedy meshing 2D (balayage par plan, par axe), plutôt qu'un quad par
+    /// voxel — réduit drastiquement le nombre de sommets/triangles sur les
+    /// grandes surfaces planes (sol, murs de falaise...). Chaque quad fusionné
+    /// a ses 4 sommets propres avec une normale de face — c'est ce qui donne
+    /// le rendu flat shading. La couleur est échantillonnée au centre du
+    /// rectangle fusionné (teinte régionale continue, voir VoxelPalette) et
+    /// écrite dans les couleurs de vertex. Les 6 voisins directs sont fournis
+    /// à part : un voisin non chargé (tableau vide, longueur 0) est traité
+    /// comme de l'air. Les faces d'eau sont émises dans un second jeu de
+    /// buffers (mesh à part, rendu avec un matériau transparent) plutôt que
+    /// dans le mesh opaque.
     /// </summary>
     [BurstCompile]
     internal struct ChunkMeshBuildJob : IJob
@@ -70,10 +75,424 @@ namespace CubeWorld.World
         public float SwampHumidityThreshold;
         public float ForestHumidityThreshold;
 
-        // Index de la face "dessus" dans GetFaceDirection/GetFaceCornerIndex.
-        private const int TopFaceIndex = 2;
+        // LOD : les chunks lointains n'ont pas besoin de touffes d'herbe (voir
+        // WorldConfig.LodNearDistance) — le terrain lui-même (greedy mesh)
+        // garde toujours le détail complet, seul cet extra coûteux est coupé.
+        public bool IncludeFoliage;
 
         public void Execute()
+        {
+            BuildGreedyMesh();
+
+            if (IncludeFoliage)
+            {
+                PlantFoliage();
+            }
+        }
+
+        // Un rectangle fusionné par cellule de masque : Type=0 (Air) signifie
+        // "pas de face ici". Sign=+1 : la face appartient au voxel "arrière"
+        // (coordonnée w-1 le long de l'axe) et pointe vers +axe. Sign=-1 :
+        // elle appartient au voxel "avant" (coordonnée w) et pointe vers -axe.
+        // Struct blittable (byte/sbyte) : compatible NativeArray en job Burst.
+        private struct FaceMaskCell
+        {
+            public byte Type;
+            public sbyte Sign;
+
+            // Occlusion ambiante des 4 coins de la face, 2 bits par coin
+            // (niveau 0 = dégagé … 3 = coin enfermé), index de coin = du + 2*dv
+            // dans le repère (u, v) du plan. Fait partie de la clé de fusion :
+            // deux faces ne fusionnent que si leur AO est identique, ce qui
+            // garde les grands aplats dégagés fusionnés (AO = 0 partout) et
+            // découpe seulement au pied des murs / dans les creux.
+            public byte Ao;
+        }
+
+        // Niveau d'occlusion (0..3) -> alpha de vertex, même convention que
+        // CharacterModel.VoxelGridMesher (lu par les shaders VoxelTerrain /
+        // VoxelCharacter : alpha 255 = aucune occlusion).
+        private static byte AoLevelToAlpha(int level)
+        {
+            switch (level)
+            {
+                case 0: return 255;
+                case 1: return 217;
+                case 2: return 179;
+                default: return 128;
+            }
+        }
+
+        // Greedy meshing par balayage de plans : pour chaque axe (X, Y, Z), on
+        // parcourt les Size+1 plans perpendiculaires (un de plus que le nombre
+        // de voxels : chaque plan est la frontière entre le voxel w-1 et le
+        // voxel w, les deux plans extrêmes touchant les chunks voisins). Sur
+        // chaque plan, un masque 2D indique quelle face (type + orientation)
+        // s'y trouve, puis un algorithme de fusion de rectangles (comme pour
+        // Minecraft/0fps) regroupe les cellules identiques adjacentes en un
+        // minimum de quads.
+        private void BuildGreedyMesh()
+        {
+            MeshAxis(0);
+            MeshAxis(1);
+            MeshAxis(2);
+        }
+
+        private void MeshAxis(int axis)
+        {
+            GetPerpendicularAxes(axis, out int uAxis, out int vAxis);
+
+            var mask = new NativeArray<FaceMaskCell>(Size * Size, Allocator.Temp);
+            var visited = new NativeArray<bool>(Size * Size, Allocator.Temp);
+
+            for (int w = 0; w <= Size; w++)
+            {
+                BuildMask(axis, uAxis, vAxis, w, mask);
+                MergeAndEmit(axis, uAxis, vAxis, w, mask, visited);
+            }
+
+            mask.Dispose();
+            visited.Dispose();
+        }
+
+        // Correspond à la convention géométrique de l'ancien meshing par
+        // voxel (voir GetFaceCornerIndex historique) : X <-> (Z, Y), Y <-> (X, Z),
+        // Z <-> (X, Y). Ne pas permuter sans revalider le winding des faces.
+        private static void GetPerpendicularAxes(int axis, out int uAxis, out int vAxis)
+        {
+            switch (axis)
+            {
+                case 0: // X : gauche/droite
+                    uAxis = 2;
+                    vAxis = 1;
+                    break;
+                case 1: // Y : dessus/dessous
+                    uAxis = 0;
+                    vAxis = 2;
+                    break;
+                default: // Z : arrière/avant
+                    uAxis = 0;
+                    vAxis = 1;
+                    break;
+            }
+        }
+
+        private void BuildMask(int axis, int uAxis, int vAxis, int w, NativeArray<FaceMaskCell> mask)
+        {
+            for (int v = 0; v < Size; v++)
+            {
+                for (int u = 0; u < Size; u++)
+                {
+                    int3 posBack = MakeCoord(axis, w - 1, uAxis, u, vAxis, v);
+                    int3 posFront = MakeCoord(axis, w, uAxis, u, vAxis, v);
+                    FaceMaskCell cell = ComputeFaceCell(SampleVoxel(posBack), SampleVoxel(posFront));
+
+                    // Pas d'AO sur l'eau (son alpha porte la transparence).
+                    if (cell.Type != 0 && cell.Type != (byte)VoxelType.Water)
+                    {
+                        // Couche "devant" la face (côté air) : c'est là que se
+                        // trouvent les voxels qui occultent ses coins.
+                        int airLayer = cell.Sign > 0 ? w : w - 1;
+                        cell.Ao = ComputeFaceAo(axis, uAxis, vAxis, airLayer, u, v);
+                    }
+
+                    mask[u + (v * Size)] = cell;
+                }
+            }
+        }
+
+        // AO voxel classique (0fps) : pour chaque coin, on regarde dans la
+        // couche devant la face les deux voisins de côté et le voisin
+        // diagonal. Deux côtés pleins = coin enfermé (niveau max).
+        private byte ComputeFaceAo(int axis, int uAxis, int vAxis, int layer, int u, int v)
+        {
+            int packed = 0;
+            for (int dv = 0; dv < 2; dv++)
+            {
+                int sv = dv == 1 ? 1 : -1;
+                for (int du = 0; du < 2; du++)
+                {
+                    int su = du == 1 ? 1 : -1;
+
+                    bool side1 = IsOccluder(MakeCoord(axis, layer, uAxis, u + su, vAxis, v));
+                    bool side2 = IsOccluder(MakeCoord(axis, layer, uAxis, u, vAxis, v + sv));
+                    bool diagonal = IsOccluder(MakeCoord(axis, layer, uAxis, u + su, vAxis, v + sv));
+
+                    int level = side1 && side2 ? 3 : (side1 ? 1 : 0) + (side2 ? 1 : 0) + (diagonal ? 1 : 0);
+                    packed |= level << ((du + (2 * dv)) * 2);
+                }
+            }
+
+            return (byte)packed;
+        }
+
+        // Voxel plein qui occulte (ni air, ni eau). Les voisins en diagonale
+        // de chunk (hors limites sur 2 axes ou plus) ne sont pas fournis au
+        // job : traités comme dégagés — SampleVoxel ne sait lire qu'un seul
+        // voisin direct à la fois.
+        private bool IsOccluder(int3 local)
+        {
+            int outside = (local.x < 0 || local.x >= Size ? 1 : 0)
+                + (local.y < 0 || local.y >= Size ? 1 : 0)
+                + (local.z < 0 || local.z >= Size ? 1 : 0);
+            if (outside > 1)
+            {
+                return false;
+            }
+
+            Voxel voxel = SampleVoxel(local);
+            return !voxel.IsAir && voxel.Type != VoxelType.Water;
+        }
+
+        // Reproduit exactement les règles de IsFaceVisible appliquées de
+        // chaque côté de la frontière : au plus une face possible par
+        // frontière (jamais les deux à la fois — voir la doc de la classe).
+        private static FaceMaskCell ComputeFaceCell(Voxel back, Voxel front)
+        {
+            if (!back.IsAir && IsFaceVisible(back.Type == VoxelType.Water, front))
+            {
+                return new FaceMaskCell { Type = (byte)back.Type, Sign = 1 };
+            }
+
+            if (!front.IsAir && IsFaceVisible(front.Type == VoxelType.Water, back))
+            {
+                return new FaceMaskCell { Type = (byte)front.Type, Sign = -1 };
+            }
+
+            return default;
+        }
+
+        // Fusionne les cellules identiques adjacentes du masque en rectangles
+        // maximaux (algorithme glouton standard : extension en largeur, puis
+        // en hauteur tant que la ligne entière correspond), puis émet un quad
+        // par rectangle.
+        private void MergeAndEmit(int axis, int uAxis, int vAxis, int w, NativeArray<FaceMaskCell> mask, NativeArray<bool> visited)
+        {
+            for (int i = 0; i < visited.Length; i++)
+            {
+                visited[i] = false;
+            }
+
+            for (int v = 0; v < Size; v++)
+            {
+                for (int u = 0; u < Size;)
+                {
+                    int idx = u + (v * Size);
+                    FaceMaskCell cell = mask[idx];
+
+                    if (visited[idx] || cell.Type == 0)
+                    {
+                        u++;
+                        continue;
+                    }
+
+                    int width = 1;
+                    while (u + width < Size && MatchesCell(mask, visited, u + width, v, Size, cell))
+                    {
+                        width++;
+                    }
+
+                    int height = 1;
+                    while (v + height < Size && RowMatchesCell(mask, visited, u, v + height, width, Size, cell))
+                    {
+                        height++;
+                    }
+
+                    for (int hh = 0; hh < height; hh++)
+                    {
+                        for (int ww = 0; ww < width; ww++)
+                        {
+                            visited[(u + ww) + ((v + hh) * Size)] = true;
+                        }
+                    }
+
+                    EmitQuad(axis, uAxis, vAxis, w, u, u + width, v, v + height, (VoxelType)cell.Type, cell.Sign, cell.Ao);
+                    u += width;
+                }
+            }
+        }
+
+        private static bool MatchesCell(NativeArray<FaceMaskCell> mask, NativeArray<bool> visited, int u, int v, int size, FaceMaskCell cell)
+        {
+            int idx = u + (v * size);
+            FaceMaskCell other = mask[idx];
+            return !visited[idx] && other.Type == cell.Type && other.Sign == cell.Sign && other.Ao == cell.Ao;
+        }
+
+        private static bool RowMatchesCell(NativeArray<FaceMaskCell> mask, NativeArray<bool> visited, int u, int v, int width, int size, FaceMaskCell cell)
+        {
+            for (int k = 0; k < width; k++)
+            {
+                if (!MatchesCell(mask, visited, u + k, v, size, cell))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Émet le quad fusionné [u0,u1) x [v0,v1) sur le plan w de cet axe.
+        // La couleur est échantillonnée une seule fois au centre du rectangle
+        // (teinte régionale continue et de faible amplitude — voir
+        // VoxelPalette — un dégradé par sommet serait imperceptible mais
+        // coûterait un échantillonnage par coin).
+        private void EmitQuad(int axis, int uAxis, int vAxis, int w, int u0, int u1, int v0, int v1, VoxelType type, sbyte sign, byte ao)
+        {
+            bool isWater = type == VoxelType.Water;
+
+            int wVoxel = sign > 0 ? w - 1 : w;
+            int uCenter = (u0 + u1 - 1) / 2;
+            int vCenter = (v0 + v1 - 1) / 2;
+            int3 worldPos = Origin + MakeCoord(axis, wVoxel, uAxis, uCenter, vAxis, vCenter);
+            BiomeType biome = SampleBiome(worldPos.x, worldPos.z);
+            Color32 color = VoxelPalette.GetColor(type, worldPos, biome);
+
+            var normal = default(float3);
+            SetComponentF(ref normal, axis, sign);
+
+            float3 c00 = MakeCornerF(axis, w, uAxis, u0, vAxis, v0);
+            float3 c01 = MakeCornerF(axis, w, uAxis, u0, vAxis, v1);
+            float3 c10 = MakeCornerF(axis, w, uAxis, u1, vAxis, v0);
+            float3 c11 = MakeCornerF(axis, w, uAxis, u1, vAxis, v1);
+
+            // Ordre des coins reproduisant le winding de l'ancien meshing par
+            // voxel (validé face par face contre GetFaceCornerIndex) : sur Z,
+            // le signe qui donne PatternA est inversé par rapport à X/Y.
+            bool usePatternA = axis == 2 ? sign < 0 : sign > 0;
+
+            // Toutes les cellules fusionnées ont la même AO : les coins du
+            // rectangle reprennent les 4 niveaux de la cellule (index du + 2*dv).
+            // Eau : on garde son alpha (transparence), pas d'AO.
+            byte a00 = isWater ? color.a : AoLevelToAlpha(ao & 3);
+            byte a10 = isWater ? color.a : AoLevelToAlpha((ao >> 2) & 3);
+            byte a01 = isWater ? color.a : AoLevelToAlpha((ao >> 4) & 3);
+            byte a11 = isWater ? color.a : AoLevelToAlpha((ao >> 6) & 3);
+
+            if (usePatternA)
+            {
+                AddGreedyFace(c00, c01, c10, c11, a00, a01, a10, a11, normal, color, isWater);
+            }
+            else
+            {
+                AddGreedyFace(c10, c11, c00, c01, a10, a11, a00, a01, normal, color, isWater);
+            }
+        }
+
+        private void AddGreedyFace(
+            float3 c0,
+            float3 c1,
+            float3 c2,
+            float3 c3,
+            byte ao0,
+            byte ao1,
+            byte ao2,
+            byte ao3,
+            float3 normal,
+            Color32 color,
+            bool isWater)
+        {
+            NativeList<float3> vertices = isWater ? WaterVertices : OpaqueVertices;
+            NativeList<float3> normals = isWater ? WaterNormals : OpaqueNormals;
+            NativeList<Color32> colors = isWater ? WaterColors : OpaqueColors;
+            NativeList<int> triangles = isWater ? WaterTriangles : OpaqueTriangles;
+
+            int baseIndex = vertices.Length;
+
+            vertices.Add(c0);
+            vertices.Add(c1);
+            vertices.Add(c2);
+            vertices.Add(c3);
+
+            normals.Add(normal);
+            normals.Add(normal);
+            normals.Add(normal);
+            normals.Add(normal);
+
+            colors.Add(new Color32(color.r, color.g, color.b, ao0));
+            colors.Add(new Color32(color.r, color.g, color.b, ao1));
+            colors.Add(new Color32(color.r, color.g, color.b, ao2));
+            colors.Add(new Color32(color.r, color.g, color.b, ao3));
+
+            // Deux triangles. Les coins 0/3 et 1/2 sont opposés : l'AO étant
+            // interpolée par triangle, on coupe le quad selon la diagonale
+            // qui relie les coins les plus clairs (sinon une "croix" sombre
+            // apparaît dans les angles — même règle que VoxelGridMesher).
+            if (ao0 + ao3 > ao1 + ao2)
+            {
+                triangles.Add(baseIndex + 0);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex + 3);
+                triangles.Add(baseIndex + 0);
+                triangles.Add(baseIndex + 3);
+                triangles.Add(baseIndex + 2);
+            }
+            else
+            {
+                triangles.Add(baseIndex + 0);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex + 2);
+                triangles.Add(baseIndex + 2);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex + 3);
+            }
+        }
+
+        private static int3 MakeCoord(int axis, int wVal, int uAxis, int uVal, int vAxis, int vVal)
+        {
+            var pos = default(int3);
+            SetComponent(ref pos, axis, wVal);
+            SetComponent(ref pos, uAxis, uVal);
+            SetComponent(ref pos, vAxis, vVal);
+            return pos;
+        }
+
+        private static float3 MakeCornerF(int axis, int w, int uAxis, int uVal, int vAxis, int vVal)
+        {
+            var pos = default(float3);
+            SetComponentF(ref pos, axis, w);
+            SetComponentF(ref pos, uAxis, uVal);
+            SetComponentF(ref pos, vAxis, vVal);
+            return pos;
+        }
+
+        private static void SetComponent(ref int3 v, int axis, int value)
+        {
+            switch (axis)
+            {
+                case 0:
+                    v.x = value;
+                    break;
+                case 1:
+                    v.y = value;
+                    break;
+                default:
+                    v.z = value;
+                    break;
+            }
+        }
+
+        private static void SetComponentF(ref float3 v, int axis, float value)
+        {
+            switch (axis)
+            {
+                case 0:
+                    v.x = value;
+                    break;
+                case 1:
+                    v.y = value;
+                    break;
+                default:
+                    v.z = value;
+                    break;
+            }
+        }
+
+        // Plantation de l'herbe/fleurs : indépendante du greedy meshing
+        // ci-dessus (une touffe est ancrée à un voxel précis, pas à un
+        // rectangle fusionné). Ne regarde que la face du dessus, seule
+        // pertinente pour savoir si un voxel Grass est à l'air libre.
+        private void PlantFoliage()
         {
             for (int x = 0; x < Size; x++)
             {
@@ -82,44 +501,30 @@ namespace CubeWorld.World
                     for (int z = 0; z < Size; z++)
                     {
                         Voxel voxel = Voxels[ToIndex(x, y, z)];
-                        if (voxel.IsAir)
+                        if (voxel.Type != VoxelType.Grass)
                         {
                             continue;
                         }
 
-                        AddVisibleFaces(voxel, new int3(x, y, z));
+                        var local = new int3(x, y, z);
+                        Voxel top = SampleVoxel(local + new int3(0, 1, 0));
+                        if (!IsFaceVisible(false, top))
+                        {
+                            continue;
+                        }
+
+                        int3 worldPos = Origin + local;
+                        BiomeType biome = SampleBiome(worldPos.x, worldPos.z);
+
+                        // L'herbe ne pousse que là où un voxel Grass est réellement à
+                        // l'air libre — VoxelType.Grass n'existe déjà que sur Forêt/
+                        // Plaines/Marais.
+                        TryAddGrassTuft(local, biome);
+                        if (biome == BiomeType.Plains)
+                        {
+                            TryAddFlower(local);
+                        }
                     }
-                }
-            }
-        }
-
-        private void AddVisibleFaces(Voxel voxel, int3 local)
-        {
-            int3 worldPos = Origin + local;
-            BiomeType biome = SampleBiome(worldPos.x, worldPos.z);
-            Color32 color = VoxelPalette.GetColor(voxel.Type, worldPos, biome);
-            bool isWater = voxel.Type == VoxelType.Water;
-            bool topExposed = false;
-
-            for (int face = 0; face < 6; face++)
-            {
-                int3 neighborLocal = local + GetFaceDirection(face);
-
-                if (IsFaceVisible(isWater, SampleVoxel(neighborLocal)))
-                {
-                    AddFace(local, face, color, isWater);
-                    topExposed |= face == TopFaceIndex;
-                }
-            }
-
-            // L'herbe ne pousse que là où un voxel Grass est réellement à l'air
-            // libre — VoxelType.Grass n'existe déjà que sur Forêt/Plaines/Marais.
-            if (topExposed && voxel.Type == VoxelType.Grass)
-            {
-                TryAddGrassTuft(local, biome);
-                if (biome == BiomeType.Plains)
-                {
-                    TryAddFlower(local);
                 }
             }
         }
@@ -195,33 +600,6 @@ namespace CubeWorld.World
         private Voxel SampleNeighbor(NativeArray<Voxel> neighbor, int x, int y, int z)
         {
             return neighbor.Length > 0 ? neighbor[ToIndex(x, y, z)] : Voxel.Air;
-        }
-
-        private void AddFace(int3 localPos, int face, Color32 color, bool isWater)
-        {
-            NativeList<float3> vertices = isWater ? WaterVertices : OpaqueVertices;
-            NativeList<float3> normals = isWater ? WaterNormals : OpaqueNormals;
-            NativeList<Color32> colors = isWater ? WaterColors : OpaqueColors;
-            NativeList<int> triangles = isWater ? WaterTriangles : OpaqueTriangles;
-
-            int baseIndex = vertices.Length;
-            float3 normal = GetFaceDirection(face);
-
-            for (int i = 0; i < 4; i++)
-            {
-                float3 corner = (float3)localPos + GetCorner(GetFaceCornerIndex(face, i));
-                vertices.Add(corner);
-                normals.Add(normal);
-                colors.Add(color);
-            }
-
-            // Deux triangles : (0,1,2) et (2,1,3) du quad.
-            triangles.Add(baseIndex + 0);
-            triangles.Add(baseIndex + 1);
-            triangles.Add(baseIndex + 2);
-            triangles.Add(baseIndex + 2);
-            triangles.Add(baseIndex + 1);
-            triangles.Add(baseIndex + 3);
         }
 
         // Tirage déterministe : un voxel Grass sur GrassTuftDensity porte 4 à 7
@@ -431,38 +809,5 @@ namespace CubeWorld.World
         {
             return x + Size * (y + Size * z);
         }
-
-        // Les 8 coins d'un voxel unitaire, relatifs à son coin (0,0,0).
-        private static float3 GetCorner(int index) => index switch
-        {
-            0 => new float3(0f, 0f, 0f),
-            1 => new float3(1f, 0f, 0f),
-            2 => new float3(1f, 1f, 0f),
-            3 => new float3(0f, 1f, 0f),
-            4 => new float3(0f, 0f, 1f),
-            5 => new float3(1f, 0f, 1f),
-            6 => new float3(1f, 1f, 1f),
-            _ => new float3(0f, 1f, 1f), // 7
-        };
-
-        private static int3 GetFaceDirection(int face) => face switch
-        {
-            0 => new int3(0, 0, -1), // arrière
-            1 => new int3(0, 0, 1),  // avant
-            2 => new int3(0, 1, 0),  // dessus
-            3 => new int3(0, -1, 0), // dessous
-            4 => new int3(-1, 0, 0), // gauche
-            _ => new int3(1, 0, 0),  // droite
-        };
-
-        private static int GetFaceCornerIndex(int face, int i) => face switch
-        {
-            0 => i switch { 0 => 0, 1 => 3, 2 => 1, _ => 2 }, // arrière
-            1 => i switch { 0 => 5, 1 => 6, 2 => 4, _ => 7 }, // avant
-            2 => i switch { 0 => 3, 1 => 7, 2 => 2, _ => 6 }, // dessus
-            3 => i switch { 0 => 1, 1 => 5, 2 => 0, _ => 4 }, // dessous
-            4 => i switch { 0 => 4, 1 => 7, 2 => 0, _ => 3 }, // gauche
-            _ => i switch { 0 => 1, 1 => 2, 2 => 5, _ => 6 }, // droite
-        };
     }
 }

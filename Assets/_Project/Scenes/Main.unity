@@ -150,12 +150,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: CubeWorld.World::CubeWorld.World.WorldBootstrap
   _config: {fileID: 11400000, guid: d3e19c3340cd8a258bc96770a1a153c2, type: 2}
   _terrainMaterial: {fileID: 2100000, guid: a0ce8e09cd5be219b95c7d54e0cf408c, type: 2}
-  _waterMaterial: {fileID: 0}
+  _waterMaterial: {fileID: 2100000, guid: d416625241644321a72f6773a24507f8, type: 2}
   _vegetationConfig: {fileID: 0}
   _viewTarget: {fileID: 0}
   _columnsPerFrame: 2
   _meshesPerFrame: 4
   _placeTargetAboveTerrain: 1
+  _lodCheckInterval: 0.5
+  _applyBlueSky: 1
+  _skyColor: {r: 0.45, g: 0.72, b: 0.95, a: 1}
 --- !u!4 &41776635
 Transform:
   m_ObjectHideFlags: 0
@@ -1434,11 +1437,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c85dd719270262b4088a875b97f020c6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CubeWorld.UI::CubeWorld.UI.InventorySlotView
-  _icon: {fileID: 231967828}
-  _nameText: {fileID: 489737531}
-  _quantityText: {fileID: 1550799539}
-  _equipButton: {fileID: 1130199669}
-  _equipButtonLabel: {fileID: 1996280318}
 --- !u!114 &636875132
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2269,8 +2267,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e28599729f417ac4e8e03c5bb5995b20, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CubeWorld.UI::CubeWorld.UI.CraftingRecipeView
-  _nameText: {fileID: 882027946}
-  _craftButton: {fileID: 1450390256}
 --- !u!114 &1105494295
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2704,7 +2700,11 @@ MonoBehaviour:
   _inputActions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   _startingWeaponItem: {fileID: 11400000, guid: 9166d4494884f764cae0899cda69eaad, type: 2}
   _itemCatalog: {fileID: 11400000, guid: e7b2c4d6a8f0415293b5c7d9e1f30415, type: 2}
-  _playerArchetype: 0
+  _startingToolItem: {fileID: 11400000, guid: 9e743d320ed34111adcb44f15f3eac67, type: 2}
+  _copperOreItem: {fileID: 11400000, guid: bf59b9087ab440b988e1a279eb3bd05e, type: 2}
+  _ironOreItem: {fileID: 11400000, guid: 9365e6f3e18446bc9a13142f9bd9a2c9, type: 2}
+  _goldOreItem: {fileID: 11400000, guid: 07a6f1bc973a4e5da018bffd8171b62b, type: 2}
+  _playerArchetype: 4
   _characterSeed: 0
   _randomizeSeedOnSpawn: 1
   _cameraDistance: 6
@@ -2916,6 +2916,52 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 935.3158, y: 110.14429, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &968667311
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 275604727}
+  - component: {fileID: 104317655}
+  m_Layer: 0
+  m_Name: DayNightCycle
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &104317655
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 968667311}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 17609c6cc7c84f77ac58268990fc2d7f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CubeWorld.World::CubeWorld.World.DayNightCycle
+  _sunLight: {fileID: 410087040}
+  _config: {fileID: 11400000, guid: 12fe4483ecff4db89f1a45b8d069cc69, type: 2}
+--- !u!4 &275604727
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 968667311}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3670,18 +3716,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: CubeWorld.UI::CubeWorld.UI.InventoryUI
   _inputActions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   _panelRoot: {fileID: 1499503752}
-  _slotGridParent: {fileID: 53073325}
-  _slotTemplate: {fileID: 636875131}
-  _weaponSlotButton: {fileID: 507522470}
-  _weaponSlotLabel: {fileID: 1281309027}
-  _headSlotButton: {fileID: 887791511}
-  _headSlotLabel: {fileID: 662042367}
-  _chestSlotButton: {fileID: 524923024}
-  _chestSlotLabel: {fileID: 1981926790}
-  _legsSlotButton: {fileID: 222546425}
-  _legsSlotLabel: {fileID: 1749682637}
-  _recipeListParent: {fileID: 113226968}
-  _recipeTemplate: {fileID: 1105494294}
   _availableRecipes:
   - {fileID: 11400000, guid: 15be40a653ccbd24898ff729a48f9f6a, type: 2}
 --- !u!4 &1784078374

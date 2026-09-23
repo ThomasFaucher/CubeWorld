@@ -2,7 +2,8 @@
     "name": "CubeWorld.Combat",
     "rootNamespace": "CubeWorld.Combat",
     "references": [
-        "CubeWorld.Core"
+        "CubeWorld.Core",
+        "CubeWorld.CharacterModel"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

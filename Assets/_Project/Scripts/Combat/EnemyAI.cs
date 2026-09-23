@@ -1,3 +1,4 @@
+using CubeWorld.CharacterModel;
 using CubeWorld.Core;
 using UnityEngine;
 using UnityEngine.AI;
@@ -38,7 +39,7 @@ namespace CubeWorld.Combat
             hitCollider.radius = definition.Radius;
             hitCollider.center = new Vector3(0f, definition.Height * 0.5f, 0f);
 
-            CreatePlaceholderVisual();
+            CreateVisual();
         }
 
         private void Update()
@@ -49,6 +50,7 @@ namespace CubeWorld.Combat
             }
 
             attackTimer -= Time.deltaTime;
+            KeepOutOfPlayer();
 
             decisionTimer -= Time.deltaTime;
             if (decisionTimer > 0f)
@@ -83,7 +85,7 @@ namespace CubeWorld.Combat
                     break;
 
                 case EnemyAction.Chase:
-                    agent.SetDestination(target.position);
+                    agent.SetDestination(ApproachPoint(target.position));
                     break;
 
                 case EnemyAction.Attack:
@@ -92,6 +94,43 @@ namespace CubeWorld.Combat
                     TryAttack();
                     break;
             }
+        }
+
+        // Point d'arrivée devant le joueur (côté ennemi), à distance d'attaque : viser son
+        // centre pousserait l'agent contre sa capsule, que le NavMeshAgent ne voit pas.
+        private Vector3 ApproachPoint(Vector3 targetPosition)
+        {
+            Vector3 fromTarget = transform.position - targetPosition;
+            fromTarget.y = 0f;
+            if (fromTarget.sqrMagnitude < 0.0001f)
+            {
+                return targetPosition;
+            }
+
+            return targetPosition + fromTarget.normalized * agent.stoppingDistance;
+        }
+
+        // Le NavMeshAgent n'évite que les autres agents, pas le CharacterController du
+        // joueur : si les deux capsules se chevauchent, on repousse l'ennemi (agent.Move
+        // le garde sur le NavMesh). Fait chaque frame, pas seulement au tick de décision.
+        private void KeepOutOfPlayer()
+        {
+            Transform target = PlayerContext.Transform;
+            if (target == null || !agent.isOnNavMesh)
+            {
+                return;
+            }
+
+            Vector3 away = transform.position - target.position;
+            away.y = 0f;
+            float minDistance = definition.Radius + PlayerContext.Radius;
+            float distance = away.magnitude;
+            if (distance >= minDistance || distance < 0.0001f)
+            {
+                return;
+            }
+
+            agent.Move(away / distance * (minDistance - distance));
         }
 
         private void FaceTarget(Vector3 targetPosition)
@@ -129,29 +168,21 @@ namespace CubeWorld.Combat
             }
         }
 
-        // Représentation visuelle temporaire (une capsule colorée), même
-        // approche que PlayerController.CreatePlaceholderVisual.
-        private void CreatePlaceholderVisual()
+        // Personnage voxel généré en code (même pipeline CharacterModel que le joueur, voir
+        // Assets/_Project/Scripts/CharacterModel), remplaçant l'ancienne capsule colorée
+        // placeholder. GetInstanceID() donne un seed stable pour la durée de vie de l'ennemi
+        // sans plomberie supplémentaire (deux ennemis du même EnemyDefinition varient donc
+        // légèrement en couleur/proportions, comme deux joueurs avec des seeds différents).
+        private void CreateVisual()
         {
-            GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            visual.name = "PlaceholderVisual";
-            visual.transform.SetParent(transform, false);
-            visual.transform.localPosition = new Vector3(0f, definition.Height * 0.5f, 0f);
-            visual.transform.localScale = new Vector3(
-                definition.Radius * 2f,
-                definition.Height * 0.5f,
-                definition.Radius * 2f
+            GameObject visual = CharacterModelBuilder.Build(
+                definition.Height,
+                definition.Archetype,
+                seed: gameObject.GetInstanceID()
             );
-            Destroy(visual.GetComponent<Collider>());
-
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-            if (shader != null)
-            {
-                visual.GetComponent<Renderer>().sharedMaterial = new Material(shader)
-                {
-                    color = definition.BodyColor,
-                };
-            }
+            visual.name = "Visual";
+            visual.transform.SetParent(transform, false);
+            visual.transform.localPosition = Vector3.zero;
         }
     }
 }

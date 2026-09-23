@@ -1,5 +1,7 @@
+using CubeWorld.CharacterModel;
 using CubeWorld.Combat;
 using CubeWorld.Core;
+using CubeWorld.Player.CharacterModel;
 using CubeWorld.World;
 using Unity.Cinemachine;
 using UnityEngine;
@@ -15,6 +17,9 @@ namespace CubeWorld.Player
     /// </summary>
     public sealed class PlayerBootstrap : MonoBehaviour
     {
+        // Sous cette hauteur monde, le joueur est tombé hors du monde : respawn en surface.
+        private const float KillPlaneY = -10f;
+
         [Header("Références")]
         [Tooltip("Le monde autour duquel le joueur sera placé et suivi.")]
         [SerializeField] private WorldBootstrap _worldBootstrap;
@@ -29,10 +34,23 @@ namespace CubeWorld.Player
         [Tooltip("Catalogue Id → ItemDefinition pour le save/load inventaire.")]
         [SerializeField] private ItemCatalog _itemCatalog;
 
+        [Tooltip("Item (Category = Tool) équipé par défaut au démarrage — sans lui, PlayerMining refuse de miner.")]
+        [SerializeField] private ItemDefinition _startingToolItem;
+
+        [Header("Minage")]
+        [Tooltip("Item donné en minant une veine de VoxelType.OreCopper (voir CaveShape).")]
+        [SerializeField] private ItemDefinition _copperOreItem;
+
+        [Tooltip("Item donné en minant une veine de VoxelType.OreIron (voir CaveShape).")]
+        [SerializeField] private ItemDefinition _ironOreItem;
+
+        [Tooltip("Item donné en minant une veine de VoxelType.OreGold (voir CaveShape).")]
+        [SerializeField] private ItemDefinition _goldOreItem;
+
         [Header("Apparence")]
         [Tooltip("Silhouette voxel du joueur (couleurs + accessoires).")]
         [SerializeField]
-        private PlayerArchetype _playerArchetype = PlayerArchetype.Swordsman;
+        private CharacterArchetype _playerArchetype = CharacterArchetype.Swordsman;
 
         [Tooltip("Seed du personnage généré (archétypes procéduraux, ex. Swordsman). Fixe-le pour itérer sur un visuel précis.")]
         [SerializeField]
@@ -88,6 +106,11 @@ namespace CubeWorld.Player
                 equipment.EquipWeapon(_startingWeaponItem);
             }
 
+            if (!loaded && _startingToolItem != null && inventory.TryAdd(_startingToolItem, 1))
+            {
+                equipment.EquipTool(_startingToolItem);
+            }
+
             if (_itemCatalog == null)
             {
                 Debug.LogWarning(
@@ -95,12 +118,23 @@ namespace CubeWorld.Player
                 );
             }
 
-            playerObject.AddComponent<PlayerCombat>().BindInput(_inputActions, equipment);
+            playerObject.AddComponent<PlayerCombat>().BindInput(_inputActions, equipment, player.CombatEvents);
+            playerObject.AddComponent<PlayerGearVisual>().Bind(equipment, player.CharacterModel, player.CombatEvents);
             health.BindEquipment(equipment);
             playerObject.AddComponent<PlayerLoot>().BindInput(_inputActions, inventory);
+            playerObject.AddComponent<PlayerMining>().Bind(
+                _inputActions,
+                _worldBootstrap,
+                equipment,
+                player.CombatEvents,
+                _copperOreItem,
+                _ironOreItem,
+                _goldOreItem
+            );
             playerObject.AddComponent<PlayerCrafting>().Bind(inventory);
             playerObject.AddComponent<PlayerFootstepDust>().Bind(_worldBootstrap);
             PlayerContext.Transform = playerObject.transform;
+            PlayerContext.Radius = player.Radius;
 
             cameraRig = PlayerCameraRig.Create(player.CameraTarget, _inputActions, _cameraDistance, _lookSensitivity);
 
@@ -119,6 +153,14 @@ namespace CubeWorld.Player
             if (Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame)
             {
                 SetFlyMode(!flyMode);
+            }
+
+            // Filet de sécurité : si le joueur est passé sous le monde malgré tout
+            // (le terrain commence à y = 0), on le remet sur la surface de sa colonne.
+            if (!flyMode && player != null && player.transform.position.y < KillPlaneY)
+            {
+                Vector3 position = player.transform.position;
+                PlacePlayerOnSurface(position.x, position.z);
             }
 
             // Permet d'ajuster _lookSensitivity dans l'inspecteur pendant le Play
@@ -174,11 +216,15 @@ namespace CubeWorld.Player
             }
 
             Vector3 camPos = Camera.main.transform.position;
-            int worldX = Mathf.FloorToInt(camPos.x);
-            int worldZ = Mathf.FloorToInt(camPos.z);
-            int surface = _worldBootstrap.World.GetSurfaceHeight(worldX, worldZ);
-            float groundY = (surface + 1) * _worldBootstrap.Config.VoxelSize;
-            player.transform.position = new Vector3(camPos.x, groundY + 0.1f, camPos.z);
+            PlacePlayerOnSurface(camPos.x, camPos.z);
+        }
+
+        // Teleport (et non transform.position) : resynchronise le CharacterController
+        // et fige le joueur jusqu'à ce que le sol sous lui ait son collider.
+        private void PlacePlayerOnSurface(float worldX, float worldZ)
+        {
+            float groundY = _worldBootstrap.GetSurfaceWorldY(worldX, worldZ);
+            player.Teleport(new Vector3(worldX, groundY + 0.1f, worldZ));
         }
 
         private void SyncWorldViewTarget()

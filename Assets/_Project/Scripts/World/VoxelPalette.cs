@@ -27,6 +27,11 @@ namespace CubeWorld.World
                 VoxelType.Ice => new Color32(214, 232, 245, 255),
                 // Alpha réduite : rendue avec le shader transparent CubeWorld/VoxelWater.
                 VoxelType.Water => new Color32(31, 143, 214, 180),
+                // Minerais : couleurs franches pour rester repérables dans la pénombre d'une
+                // grotte (voir CaveShape) malgré l'éclairage en paliers du shader.
+                VoxelType.OreCopper => new Color32(196, 110, 68, 255),
+                VoxelType.OreIron => new Color32(101, 112, 130, 255),
+                VoxelType.OreGold => new Color32(255, 208, 66, 255),
                 _ => new Color32(255, 0, 255, 255), // magenta = type inconnu, visible en debug
             };
 

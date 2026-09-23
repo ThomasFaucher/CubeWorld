@@ -43,6 +43,10 @@ namespace CubeWorld.World
         [Tooltip("Échelle du bruit de biome : plus petit = régions de biome plus larges (nettement < NoiseScale).")]
         [SerializeField] private float _biomeNoiseScale = 0.0015f;
 
+        [Header("LOD")]
+        [Tooltip("Distance (en chunks, horizontale) en deçà de laquelle un chunk reçoit le détail complet (touffes d'herbe/fleurs, collision) ; au-delà, détail réduit pour la performance (le terrain reste identique, seuls ces extras sont coupés). Doit rester <= ViewDistance.")]
+        [SerializeField] private int _lodNearDistance = 3;
+
         public int ChunkSize => _chunkSize;
         public float VoxelSize => _voxelSize;
         public int ViewDistance => _viewDistance;
@@ -53,9 +57,26 @@ namespace CubeWorld.World
         public int MaxTerrainHeight => _maxTerrainHeight;
         public int SeaLevel => _seaLevel;
         public float BiomeNoiseScale => _biomeNoiseScale;
+        public int LodNearDistance => _lodNearDistance;
 
         /// <summary>Override runtime de la graine (copie d'asset, pas l'asset disque).</summary>
         public void SetSeed(int seed) => _seed = seed;
+
+        /// <summary>
+        /// Override runtime (copie d'asset, voir WorldBootstrap.Awake) de la distance de vue —
+        /// utilisé par <see cref="WorldQualityTier"/> pour la piloter depuis le palier
+        /// QualitySettings actif (Low/Medium/High) plutôt que de figer une seule valeur pour
+        /// tout le monde.
+        /// </summary>
+        public void SetViewDistance(int viewDistance, int verticalViewDistance)
+        {
+            _viewDistance = Mathf.Max(1, viewDistance);
+            _verticalViewDistance = Mathf.Max(1, verticalViewDistance);
+        }
+
+        /// <summary>Override runtime du rayon LOD proche (voir <see cref="SetViewDistance"/>).</summary>
+        public void SetLodNearDistance(int lodNearDistance) =>
+            _lodNearDistance = Mathf.Clamp(lodNearDistance, 1, _viewDistance);
 
         /// <summary>Nombre total de voxels dans un chunk.</summary>
         public int VoxelsPerChunk => _chunkSize * _chunkSize * _chunkSize;

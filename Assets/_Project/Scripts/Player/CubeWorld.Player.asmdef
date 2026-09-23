@@ -5,6 +5,7 @@
         "CubeWorld.Core",
         "CubeWorld.World",
         "CubeWorld.Combat",
+        "CubeWorld.CharacterModel",
         "Unity.InputSystem",
         "Unity.Cinemachine",
         "Unity.Mathematics"

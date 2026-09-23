@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 711daf40dc0a326448b350459430ecb5, type: 3}
+  m_Name: Item_Tool_Pickaxe
+  m_EditorClassIdentifier: CubeWorld.Combat::CubeWorld.Combat.ItemDefinition
+  _id: pickaxe
+  _displayName: Pickaxe
+  _color: {r: 0.55, g: 0.4, b: 0.3, a: 1}
+  _icon: {fileID: 0}
+  _category: 3
+  _maxStackSize: 1
+  _weapon: {fileID: 0}
+  _armor: {fileID: 0}
+  _tool: {fileID: 11400000, guid: 1b3c121adbea4dc2aafc11f5a1a205e2, type: 2}

@@ -29,8 +29,11 @@ namespace CubeWorld.World
         public int Octaves;
         public int MaxTerrainHeight;
         public int SeaLevel;
-        public int SnowHeight;
         public int DirtDepth;
+
+        public float2 RiverSeedOffset;
+        public float2 BasinSeedOffset;
+        public float2 EntranceSeedOffset;
 
         public float2 TemperatureSeedOffset;
         public float2 HumiditySeedOffset;
@@ -49,38 +52,101 @@ namespace CubeWorld.World
             int worldX = Origin.x + x;
             int worldZ = Origin.z + z;
 
-            // Même heightmap pour tous les biomes : pas de dépression/aplatissage
-            // swamp (ça créait des falaises et des marches aux frontières de chunks).
-            int surfaceHeight = TerrainShape.SampleHeight(
-                worldX,
-                worldZ,
-                SeedOffset,
-                NoiseScale,
-                Octaves,
-                MaxTerrainHeight);
-
-            BiomeType biome = BiomeShape.Sample(
+            // Un seul échantillon de climat, réutilisé pour la classification dure
+            // (matériau/props) ET les poids lissés (relief, voir BiomeHeightProfile) — pas
+            // de double bruit pour la même colonne. Le relief mélange désormais un profil
+            // par biome (dunes/pics/ondulations/aplatissement) via ces poids continus, ce
+            // qui évite la falaise qu'aurait créée une ancienne tentative de dépression
+            // dure par biome (voir BiomeHeightProfile.Swamp).
+            BiomeShape.SampleClimate(
                 worldX,
                 worldZ,
                 TemperatureSeedOffset,
                 HumiditySeedOffset,
                 BiomeNoiseScale,
                 BiomeOctaves,
+                out float temperature,
+                out float humidity);
+
+            BiomeType biome = BiomeShape.Classify(
+                temperature,
+                humidity,
                 SnowTemperatureThreshold,
                 DesertTemperatureThreshold,
                 DesertHumidityThreshold,
                 SwampHumidityThreshold,
                 ForestHumidityThreshold);
 
+            BiomeWeights biomeWeights = BiomeShape.ClassifyWeights(temperature, humidity);
+
+            int surfaceHeight = TerrainShape.SampleHeight(
+                worldX,
+                worldZ,
+                SeedOffset,
+                NoiseScale,
+                Octaves,
+                MaxTerrainHeight,
+                biomeWeights,
+                SeaLevel);
+
+            // Rivières et lacs : creusent localement sous le niveau de la mer, qui se
+            // remplit alors d'eau via la règle de flood déjà appliquée par CreateVoxel.
+            surfaceHeight = RiverShape.ApplyRivers(worldX, worldZ, surfaceHeight, RiverSeedOffset, BasinSeedOffset, SeaLevel);
+
+            // Entrée de grotte (doline) : une seule fois par colonne — le puits force
+            // de l'air quelle que soit la couche (herbe/terre/pierre).
+            bool hasEntrance = CaveEntranceShape.TryGetShaft(
+                worldX,
+                worldZ,
+                surfaceHeight,
+                EntranceSeedOffset,
+                SeedOffset,
+                SeaLevel,
+                out int shaftBottomY,
+                out float2 entranceCenter);
+
             for (int y = 0; y < Size; y++)
             {
+                int worldY = Origin.y + y;
                 Voxel voxel = TerrainShape.CreateVoxel(
-                    Origin.y + y,
+                    worldY,
                     surfaceHeight,
                     SeaLevel,
-                    SnowHeight,
                     DirtDepth,
                     biome);
+
+                // Grottes/minerai : seule la Pierre profonde est concernée (jamais la
+                // surface/Terre/Sable/Eau — voir CaveShape).
+                if (voxel.Type == VoxelType.Stone)
+                {
+                    if (CaveShape.IsCave(worldX, worldY, worldZ, surfaceHeight, SeedOffset))
+                    {
+                        voxel = Voxel.Air;
+                    }
+                    else
+                    {
+                        VoxelType oreType = CaveShape.ApplyOreVein(worldX, worldY, worldZ, surfaceHeight, SeedOffset);
+                        if (oreType != VoxelType.Stone)
+                        {
+                            voxel = new Voxel(oreType);
+                        }
+                    }
+                }
+
+                // Puits d'entrée : override final — perce herbe/terre/pierre jusqu'à
+                // la poche de grotte (ou profondeur de repli).
+                if (hasEntrance
+                    && CaveEntranceShape.IsInsideShaft(
+                        worldX,
+                        worldY,
+                        worldZ,
+                        surfaceHeight,
+                        shaftBottomY,
+                        entranceCenter))
+                {
+                    voxel = Voxel.Air;
+                }
+
                 Voxels[x + Size * (y + Size * z)] = voxel;
             }
         }

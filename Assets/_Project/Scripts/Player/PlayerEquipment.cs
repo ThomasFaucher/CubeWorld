@@ -16,12 +16,16 @@ namespace CubeWorld.Player
         private PlayerHealth health;
 
         private ItemDefinition weaponItem;
+        private ItemDefinition toolItem;
         private ItemDefinition headItem;
         private ItemDefinition chestItem;
         private ItemDefinition legsItem;
 
         public WeaponDefinition CurrentWeapon => weaponItem != null ? weaponItem.Weapon : null;
         public ItemDefinition WeaponItem => weaponItem;
+
+        public ToolDefinition CurrentTool => toolItem != null ? toolItem.Tool : null;
+        public ItemDefinition ToolItem => toolItem;
 
         public int TotalDefense => DefenseOf(headItem) + DefenseOf(chestItem) + DefenseOf(legsItem);
 
@@ -49,6 +53,7 @@ namespace CubeWorld.Player
             return kind switch
             {
                 EquipmentSlotKind.Weapon => weaponItem,
+                EquipmentSlotKind.Tool => toolItem,
                 EquipmentSlotKind.Head => headItem,
                 EquipmentSlotKind.Chest => chestItem,
                 EquipmentSlotKind.Legs => legsItem,
@@ -86,6 +91,39 @@ namespace CubeWorld.Player
             }
 
             weaponItem = null;
+            EquipmentChanged?.Invoke();
+        }
+
+        public bool EquipTool(ItemDefinition item)
+        {
+            if (item == null || item.Category != ItemCategory.Tool || item.Tool == null)
+            {
+                return false;
+            }
+
+            if (!inventory.TryRemove(item, 1))
+            {
+                return false;
+            }
+
+            if (toolItem != null)
+            {
+                inventory.TryAdd(toolItem, 1);
+            }
+
+            toolItem = item;
+            EquipmentChanged?.Invoke();
+            return true;
+        }
+
+        public void UnequipTool()
+        {
+            if (toolItem == null || !inventory.TryAdd(toolItem, 1))
+            {
+                return;
+            }
+
+            toolItem = null;
             EquipmentChanged?.Invoke();
         }
 
@@ -151,6 +189,11 @@ namespace CubeWorld.Player
                 return TryEquipWeaponFromSlot(invIndex, item);
             }
 
+            if (item.Category == ItemCategory.Tool)
+            {
+                return TryEquipToolFromSlot(invIndex, item);
+            }
+
             if (item.Category == ItemCategory.Armor)
             {
                 return TryEquipArmorFromSlot(invIndex, item);
@@ -206,6 +249,10 @@ namespace CubeWorld.Player
             {
                 weaponItem = taken;
             }
+            else if (kind == EquipmentSlotKind.Tool)
+            {
+                toolItem = taken;
+            }
             else
             {
                 ArmorSlot armorSlot = ToArmorSlot(kind);
@@ -244,6 +291,10 @@ namespace CubeWorld.Player
             if (kind == EquipmentSlotKind.Weapon)
             {
                 weaponItem = toEquip;
+            }
+            else if (kind == EquipmentSlotKind.Tool)
+            {
+                toolItem = toEquip;
             }
             else
             {
@@ -297,6 +348,10 @@ namespace CubeWorld.Player
                 {
                     weaponItem = incoming;
                 }
+                else if (kind == EquipmentSlotKind.Tool)
+                {
+                    toolItem = incoming;
+                }
                 else
                 {
                     ArmorSlot armorSlot = ToArmorSlot(kind);
@@ -339,6 +394,8 @@ namespace CubeWorld.Player
             {
                 EquipmentSlotKind.Weapon => item.Category == ItemCategory.Weapon
                     && item.Weapon != null,
+                EquipmentSlotKind.Tool => item.Category == ItemCategory.Tool
+                    && item.Tool != null,
                 EquipmentSlotKind.Head => item.Category == ItemCategory.Armor
                     && item.Armor != null
                     && item.Armor.Slot == ArmorSlot.Head,
@@ -375,6 +432,39 @@ namespace CubeWorld.Player
                     {
                         // Sac plein : remettre l'arme précédente et restaurer le slot.
                         weaponItem = previous;
+                        inventory.TryPlaceInSlot(invIndex, item, 1, out _);
+                        return false;
+                    }
+                }
+            }
+
+            EquipmentChanged?.Invoke();
+            return true;
+        }
+
+        private bool TryEquipToolFromSlot(int invIndex, ItemDefinition item)
+        {
+            if (item.Tool == null)
+            {
+                return false;
+            }
+
+            if (!inventory.TryTakeFromSlot(invIndex, 1, out _, out int taken) || taken <= 0)
+            {
+                return false;
+            }
+
+            ItemDefinition previous = toolItem;
+            toolItem = item;
+
+            if (previous != null)
+            {
+                if (!inventory.TryPlaceInSlot(invIndex, previous, 1, out int left) || left > 0)
+                {
+                    if (!inventory.TryAdd(previous, 1))
+                    {
+                        // Sac plein : remettre l'outil précédent et restaurer le slot.
+                        toolItem = previous;
                         inventory.TryPlaceInSlot(invIndex, item, 1, out _);
                         return false;
                     }
@@ -435,6 +525,7 @@ namespace CubeWorld.Player
         /// </summary>
         public void RestoreEquipped(
             ItemDefinition weapon,
+            ItemDefinition tool,
             ItemDefinition head,
             ItemDefinition chest,
             ItemDefinition legs
@@ -456,6 +547,7 @@ namespace CubeWorld.Player
             }
 
             weaponItem = weapon != null && weapon.Category == ItemCategory.Weapon ? weapon : null;
+            toolItem = tool != null && tool.Category == ItemCategory.Tool ? tool : null;
             headItem = ValidArmor(head, ArmorSlot.Head);
             chestItem = ValidArmor(chest, ArmorSlot.Chest);
             legsItem = ValidArmor(legs, ArmorSlot.Legs);
@@ -494,6 +586,9 @@ namespace CubeWorld.Player
             {
                 case EquipmentSlotKind.Weapon:
                     weaponItem = null;
+                    break;
+                case EquipmentSlotKind.Tool:
+                    toolItem = null;
                     break;
                 case EquipmentSlotKind.Head:
                 case EquipmentSlotKind.Chest:

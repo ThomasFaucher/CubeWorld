@@ -1,5 +1,6 @@
+using CubeWorld.CharacterModel;
+using CubeWorld.CharacterModel.Generation;
 using CubeWorld.Player.CharacterModel;
-using CubeWorld.Player.CharacterModel.Generation;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -16,6 +17,13 @@ namespace CubeWorld.Player
     [RequireComponent(typeof(CharacterController))]
     public sealed class PlayerController : MonoBehaviour
     {
+        // Portée du rayon qui vérifie qu'il y a du sol solide sous le joueur avant
+        // d'activer la gravité (voir IsWaitingForGround).
+        private const float GroundProbeDistance = 64f;
+
+        // Au-delà, on relâche quand même le joueur : ne jamais rester bloqué en l'air.
+        private const float MaxGroundWait = 10f;
+
         [Header("Déplacement")]
         [SerializeField]
         private float _walkSpeed = 6f;
@@ -53,7 +61,7 @@ namespace CubeWorld.Player
         [SerializeField]
         private CharacterExpression _debugExpression = CharacterExpression.Neutral;
 
-        private PlayerArchetype archetype = PlayerArchetype.Swordsman;
+        private CharacterArchetype archetype = CharacterArchetype.Swordsman;
         private int seed;
         private GameObject visualRoot;
 
@@ -63,9 +71,20 @@ namespace CubeWorld.Player
         private InputAction moveAction;
         private InputAction jumpAction;
         private InputAction sprintAction;
+        private bool waitingForGround;
+        private float groundWaitElapsed;
+
+        /// <summary>Rayon de la capsule de collision du joueur (utilisé par les ennemis pour garder leurs distances).</summary>
+        public float Radius => _radius;
 
         /// <summary>Point à hauteur d'épaule suivi/visé par le rig caméra 3e personne.</summary>
         public Transform CameraTarget { get; private set; }
+
+        /// <summary>Rig du personnage voxel généré (os + palette/unité/matériau) — utilisé par PlayerGearVisual pour monter l'arme équipée.</summary>
+        public CharacterModelRoot CharacterModel { get; private set; }
+
+        /// <summary>Pont AnimationEvent du layer Combat (voir CharacterCombatAnimationEvents) — bindé par PlayerBootstrap.</summary>
+        public CharacterCombatAnimationEvents CombatEvents { get; private set; }
 
         private void Awake()
         {
@@ -85,14 +104,14 @@ namespace CubeWorld.Player
         }
 
         /// <summary>Appelé par PlayerBootstrap juste après AddComponent, avant Start.</summary>
-        public void Initialize(PlayerArchetype playerArchetype) =>
+        public void Initialize(CharacterArchetype playerArchetype) =>
             Initialize(playerArchetype, seed: 0);
 
         /// <summary>
         /// Variante avec seed explicite : même seed -> même personnage généré
         /// (couleurs, proportions, cape, pauldron, coiffure pour les archétypes procéduraux).
         /// </summary>
-        public void Initialize(PlayerArchetype playerArchetype, int seed)
+        public void Initialize(CharacterArchetype playerArchetype, int seed)
         {
             archetype = playerArchetype;
             this.seed = seed;
@@ -114,9 +133,76 @@ namespace CubeWorld.Player
             boundMap?.Disable();
         }
 
+        private void Start()
+        {
+            // WorldBootstrap.Start pose le joueur sur la surface, mais les colliders de
+            // chunk n'arrivent que quelques frames plus tard (meshing + cuisson en fond).
+            BeginGroundWait();
+        }
+
+        /// <summary>
+        /// Déplace le joueur instantanément. Passer par ici plutôt que par
+        /// <c>transform.position</c> : avec Auto Sync Transforms désactivé, le
+        /// CharacterController garderait sinon son ancienne position interne et le
+        /// prochain <c>Move</c> ramènerait le joueur en arrière.
+        /// </summary>
+        public void Teleport(Vector3 position)
+        {
+            transform.position = position;
+            Physics.SyncTransforms();
+            motor.ResetVerticalVelocity();
+            BeginGroundWait();
+        }
+
+        private void BeginGroundWait()
+        {
+            waitingForGround = true;
+            groundWaitElapsed = 0f;
+        }
+
+        // Tant qu'aucun collider n'est détecté sous le joueur (chunk pas encore
+        // matérialisé), on le laisse figé : appliquer la gravité le ferait passer
+        // à travers le terrain avant que celui-ci ne devienne solide.
+        private bool IsWaitingForGround()
+        {
+            if (!waitingForGround)
+            {
+                return false;
+            }
+
+            // Origine à l'intérieur de la capsule du CharacterController : un raycast
+            // ne détecte pas le collider dans lequel il démarre, donc pas le joueur.
+            Vector3 origin = transform.position + Vector3.up * 0.5f;
+            if (
+                Physics.Raycast(
+                    origin,
+                    Vector3.down,
+                    GroundProbeDistance,
+                    Physics.AllLayers,
+                    QueryTriggerInteraction.Ignore
+                )
+            )
+            {
+                waitingForGround = false;
+                return false;
+            }
+
+            groundWaitElapsed += Time.deltaTime;
+            if (groundWaitElapsed >= MaxGroundWait)
+            {
+                Debug.LogWarning(
+                    $"[CubeWorld] PlayerController : aucun sol détecté après {MaxGroundWait} s, gravité réactivée."
+                );
+                waitingForGround = false;
+                return false;
+            }
+
+            return true;
+        }
+
         private void Update()
         {
-            if (moveAction == null)
+            if (moveAction == null || IsWaitingForGround())
             {
                 return;
             }
@@ -135,7 +221,8 @@ namespace CubeWorld.Player
                 cameraYaw,
                 Time.deltaTime
             );
-            controller.Move(move);
+            CollisionFlags collisions = controller.Move(move);
+            motor.NotifyCollisions(collisions);
 
             if (motor.LastMoveDirection.sqrMagnitude > 0.0001f)
             {
@@ -143,18 +230,20 @@ namespace CubeWorld.Player
                     motor.LastMoveDirection,
                     Vector3.up
                 );
+                // Lissage exponentiel : même vitesse de rotation quel que soit le framerate
+                // (un simple speed * deltaTime tourne plus vite à bas FPS).
                 transform.rotation = Quaternion.Slerp(
                     transform.rotation,
                     targetRotation,
-                    _rotationSpeed * Time.deltaTime
+                    1f - Mathf.Exp(-_rotationSpeed * Time.deltaTime)
                 );
             }
         }
 
         // Représentation visuelle : personnage voxel généré en code (style chibi
-        // CubeWorld), assemblé en pièces indépendantes (une par partie du corps)
-        // animées par rotation via ProceduralCharacterAnimator. Pas de collider
-        // dessus : le CharacterController gère la physique du joueur lui-même.
+        // CubeWorld), assemblé en pièces indépendantes (une par partie du corps),
+        // animées par un vrai Animator Controller (voir CharacterLocomotionAnimator).
+        // Pas de collider dessus : le CharacterController gère la physique du joueur lui-même.
         private void CreateVoxelVisual()
         {
             if (visualRoot != null)
@@ -171,8 +260,15 @@ namespace CubeWorld.Player
             visualRoot.transform.SetParent(transform, false);
             visualRoot.transform.localPosition = Vector3.zero;
 
-            var animator = visualRoot.AddComponent<ProceduralCharacterAnimator>();
-            animator.Initialize(visualRoot.GetComponent<CharacterModelRoot>(), controller);
+            CharacterModel = visualRoot.GetComponent<CharacterModelRoot>();
+            var animator = visualRoot.AddComponent<CharacterLocomotionAnimator>();
+            animator.Initialize(CharacterModel, controller);
+
+            // Même GameObject que l'Animator (pas celui du joueur) : les AnimationEvent bakés
+            // dans les clips de combat/minage ne peuvent appeler que des méthodes portées par
+            // le GameObject de l'Animator lui-même — voir CharacterCombatAnimationEvents.
+            CombatEvents = visualRoot.AddComponent<CharacterCombatAnimationEvents>();
+            CombatEvents.Initialize(animator.Animator);
         }
     }
 }

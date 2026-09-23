@@ -31,6 +31,14 @@ namespace CubeWorld.World
         [Tooltip("Le monde se génère autour de cette cible. Si vide : la caméra principale.")]
         [SerializeField] private Transform _viewTarget;
 
+        [Tooltip(
+            "Fait piloter la distance de vue/LOD par le palier QualitySettings actif "
+                + "(Low/Medium/High, voir WorldQualityTier) plutôt que par les valeurs figées "
+                + "de l'asset WorldConfig. Décocher pour garder un contrôle manuel exact "
+                + "(ex. debug/benchmark d'un seul palier)."
+        )]
+        [SerializeField] private bool _useQualityTierViewDistance = true;
+
         [Header("Streaming")]
         [Tooltip("Colonnes de chunks générées par frame. Plus haut = remplissage plus rapide mais frames plus lourdes.")]
         [SerializeField] private int _columnsPerFrame = 2;
@@ -40,6 +48,9 @@ namespace CubeWorld.World
 
         [Tooltip("Place la cible sur le sol au démarrage (hauteur de surface procédurale).")]
         [SerializeField] private bool _placeTargetAboveTerrain = true;
+
+        [Tooltip("Intervalle (secondes) entre deux vérifications des transitions de LOD (palier proche/loin) des chunks déjà chargés. Pas besoin de le faire chaque frame : ces transitions sont rares et peu coûteuses à retarder légèrement.")]
+        [SerializeField] private float _lodCheckInterval = 0.5f;
 
         [Header("Ciel")]
         [Tooltip("Applique un ciel bleu uni sur la caméra principale au démarrage.")]
@@ -55,6 +66,15 @@ namespace CubeWorld.World
         private ChunkStreamer streamer;
         private readonly Dictionary<int3, ChunkVisual> chunkVisuals = new();
 
+        // Hiérarchies de GameObjects/Components libérées par un chunk déchargé
+        // (ou devenu vide) et prêtes à être réattribuées au prochain chunk qui
+        // en a besoin — évite l'aller-retour Instantiate/Destroy (et son coût
+        // GC) à chaque traversée de frontière de streaming. Les meshes, eux,
+        // restent recréés à chaque matérialisation (voir MaterializeChunk) :
+        // leur contenu est propre à chaque chunk et la cuisson asynchrone du
+        // collider dépend de leur identité, les réutiliser serait fragile.
+        private readonly Stack<ChunkVisual> visualPool = new();
+
         // Jobs de meshing planifiés mais pas encore terminés (voir OnChunkMeshDirty).
         private readonly Dictionary<int3, PendingMesh> pendingMeshes = new();
         private readonly List<int3> completedMeshBuffer = new();
@@ -63,6 +83,15 @@ namespace CubeWorld.World
         private readonly Dictionary<int3, PendingColliderBake> pendingColliderBakes = new();
         private readonly List<int3> completedBakeBuffer = new();
 
+        // Palier LOD utilisé au dernier meshing de chaque chunk actuellement
+        // chargé (true = détail complet : touffes + collision). Permet de
+        // détecter les transitions quand le joueur se rapproche/s'éloigne
+        // (voir UpdateLodTransitions) sans dépendre du système de "dirty"
+        // voisinage de ChunkStreamer, qui ne se déclenche pas pour ça.
+        private readonly Dictionary<int3, bool> chunkLodNear = new();
+        private readonly List<int3> lodTransitionBuffer = new();
+        private float lodCheckTimer;
+
         // Bornes locales d'un mesh de chunk, connues d'avance (0..ChunkSize, avec une
         // marge verticale pour les brins d'herbe qui dépassent du voxel du dessus) :
         // évite le RecalculateBounds par mesh sur le thread principal.
@@ -70,24 +99,28 @@ namespace CubeWorld.World
 
         private void Awake()
         {
-            // Copie runtime si seed random : évite de saloper l'asset WorldConfig sur disque.
-            bool randomizeSeed = _config != null && _config.RandomizeSeedOnStart;
-
+            // Toujours une copie runtime (jamais l'asset _config directement) : la seed
+            // randomisée ET le palier de qualité (voir WorldQualityTier.Apply ci-dessous)
+            // écrivent dans cette copie, jamais dans l'asset sur disque.
             if (_config != null)
             {
-                config = randomizeSeed ? Instantiate(_config) : _config;
+                config = Instantiate(_config);
             }
             else
             {
                 config = ScriptableObject.CreateInstance<WorldConfig>();
-                randomizeSeed = config.RandomizeSeedOnStart;
             }
 
-            if (randomizeSeed)
+            if (config.RandomizeSeedOnStart)
             {
                 int seed = UnityEngine.Random.Range(1, int.MaxValue);
                 config.SetSeed(seed);
                 Debug.Log($"[CubeWorld] Seed monde : {seed}");
+            }
+
+            if (_useQualityTierViewDistance)
+            {
+                WorldQualityTier.Apply(config);
             }
 
             terrainMaterial = _terrainMaterial != null ? _terrainMaterial : CreateDefaultMaterial("CubeWorld/VoxelTerrain");
@@ -111,11 +144,24 @@ namespace CubeWorld.World
 
             if (_placeTargetAboveTerrain && ViewTarget is { } target)
             {
-                // Haut du voxel de surface (même convention que VegetationSpawner).
-                int surfaceHeight = world.GetSurfaceHeight(0, 0);
-                float groundY = (surfaceHeight + 1) * config.VoxelSize;
-                target.position = new Vector3(0f, groundY, 0f);
+                target.position = new Vector3(0f, GetSurfaceWorldY(0f, 0f), 0f);
+                // Auto Sync Transforms est désactivé : sans ça, un CharacterController
+                // sur la cible garderait sa position interne d'origine au premier Move.
+                Physics.SyncTransforms();
             }
+        }
+
+        /// <summary>
+        /// Hauteur monde (Y) du dessus du voxel de surface de la colonne contenant la
+        /// position monde (<paramref name="worldX"/>, <paramref name="worldZ"/>) — même
+        /// convention que VegetationSpawner. Fait la conversion monde → voxel (VoxelSize).
+        /// </summary>
+        public float GetSurfaceWorldY(float worldX, float worldZ)
+        {
+            int voxelX = (int)math.floor(worldX / config.VoxelSize);
+            int voxelZ = (int)math.floor(worldZ / config.VoxelSize);
+            int surfaceHeight = world.GetSurfaceHeight(voxelX, voxelZ);
+            return (surfaceHeight + 1) * config.VoxelSize;
         }
 
         private void ApplyBlueSky()
@@ -145,6 +191,8 @@ namespace CubeWorld.World
 
             streamer.SetCenter(WorldToColumn(target.position));
             streamer.Process(_columnsPerFrame, OnChunkMeshDirty, OnChunkUnloaded);
+
+            UpdateLodTransitions();
         }
 
         private void OnDestroy()
@@ -205,6 +253,20 @@ namespace CubeWorld.World
             _viewTarget = target;
         }
 
+        /// <summary>
+        /// Reconstruit le mesh de ce chunk s'il est actuellement chargé — sans effet sinon
+        /// (un chunk pas encore chargé sera généré avec le voxel déjà à jour). Destiné aux
+        /// éditions de voxel à l'exécution (voir <see cref="VoxelWorld.TrySetVoxel"/>,
+        /// consommé par CubeWorld.Player.PlayerMining dans l'assemblée CubeWorld.Player).
+        /// </summary>
+        public void RequestRemesh(int3 coord)
+        {
+            if (world.HasChunk(coord))
+            {
+                OnChunkMeshDirty(world.RequestChunk(coord));
+            }
+        }
+
         // Colonne de chunks (x, z) contenant cette position monde. La largeur
         // d'une colonne, en unités monde, est ChunkSize (voxels) * VoxelSize.
         private int2 WorldToColumn(Vector3 position)
@@ -233,13 +295,82 @@ namespace CubeWorld.World
                 stale.Foliage.Dispose();
             }
 
+            bool nearTier = ResolveLodTier(coord);
+            chunkLodNear[coord] = nearTier;
+
             var opaqueData = new ChunkMeshData(Allocator.Persistent);
             var waterData = new ChunkMeshData(Allocator.Persistent);
             var foliageData = new ChunkMeshData(Allocator.Persistent);
-            JobHandle handle = ChunkMeshBuilder.ScheduleBuild(chunk, world, opaqueData, waterData, foliageData, vegetationConfig);
+            JobHandle handle = ChunkMeshBuilder.ScheduleBuild(chunk, world, opaqueData, waterData, foliageData, vegetationConfig, nearTier);
 
             world.SetMeshHandle(coord, handle);
             pendingMeshes[coord] = new PendingMesh(chunk, opaqueData, waterData, foliageData, handle);
+        }
+
+        // Palier LOD à utiliser pour ce chunk : conserve celui déjà en place
+        // avec une marge d'hystérésis (+1 chunk, même logique que
+        // ChunkStreamer.UnloadDistantColumns) pour éviter d'osciller quand le
+        // joueur reste pile à la frontière ; sinon tranche au seuil strict.
+        private bool ResolveLodTier(int3 coord)
+        {
+            bool hadTier = chunkLodNear.TryGetValue(coord, out bool wasNear);
+            int distSq = LodDistanceSq(coord);
+
+            if (hadTier && wasNear)
+            {
+                int keepRadius = config.LodNearDistance + 1;
+                return distSq <= keepRadius * keepRadius;
+            }
+
+            return distSq <= config.LodNearDistance * config.LodNearDistance;
+        }
+
+        // Distance (au carré, en colonnes de chunks) entre ce chunk et la
+        // colonne actuelle de la cible de vue — même métrique horizontale que
+        // ChunkStreamer (la hauteur du chunk n'entre pas en compte).
+        private int LodDistanceSq(int3 coord)
+        {
+            if (ViewTarget is not { } target)
+            {
+                return 0;
+            }
+
+            int2 viewColumn = WorldToColumn(target.position);
+            int2 delta = new int2(coord.x, coord.z) - viewColumn;
+            return (delta.x * delta.x) + (delta.y * delta.y);
+        }
+
+        // À appeler chaque frame (throttlé) : les transitions de palier LOD ne
+        // sont déclenchées par aucun événement de ChunkStreamer (qui ne
+        // remeshe que sur chargement/déchargement/voisinage) — il faut donc
+        // les détecter nous-mêmes en comparant le palier actuel de chaque
+        // chunk chargé à celui qu'il devrait avoir maintenant.
+        private void UpdateLodTransitions()
+        {
+            lodCheckTimer += Time.deltaTime;
+            if (lodCheckTimer < _lodCheckInterval)
+            {
+                return;
+            }
+
+            lodCheckTimer = 0f;
+            lodTransitionBuffer.Clear();
+
+            foreach (int3 coord in chunkLodNear.Keys)
+            {
+                if (ResolveLodTier(coord) != chunkLodNear[coord])
+                {
+                    lodTransitionBuffer.Add(coord);
+                }
+            }
+
+            foreach (int3 coord in lodTransitionBuffer)
+            {
+                if (world.HasChunk(coord))
+                {
+                    OnChunkMeshDirty(world.RequestChunk(coord));
+                }
+            }
         }
 
         // À appeler chaque frame, avant tout traitement pouvant décharger des
@@ -362,7 +493,7 @@ namespace CubeWorld.World
             {
                 if (hasVisual)
                 {
-                    DestroyChunkVisual(visual);
+                    ReleaseChunkVisual(visual);
                     chunkVisuals.Remove(chunk.Coord);
                 }
 
@@ -371,7 +502,7 @@ namespace CubeWorld.World
 
             if (!hasVisual)
             {
-                visual = CreateChunkVisual(chunk);
+                visual = AcquireChunkVisual(chunk);
                 chunkVisuals[chunk.Coord] = visual;
             }
 
@@ -383,7 +514,13 @@ namespace CubeWorld.World
             Mesh previousOpaqueMesh = visual.OpaqueFilter.sharedMesh;
             visual.OpaqueFilter.sharedMesh = opaqueMesh;
 
-            if (opaqueMesh == null)
+            // Palier LOD lointain : pas de collision (le joueur n'est de toute
+            // façon pas dessus — voir ResolveLodTier/UpdateLodTransitions, qui
+            // remeshera avec collider dès qu'il s'en approche). Le rendu, lui,
+            // garde toujours le mesh complet quel que soit le palier.
+            bool nearTier = !chunkLodNear.TryGetValue(chunk.Coord, out bool tier) || tier;
+
+            if (opaqueMesh == null || !nearTier)
             {
                 visual.OpaqueCollider.sharedMesh = null;
                 if (previousOpaqueMesh != null)
@@ -421,15 +558,28 @@ namespace CubeWorld.World
                 (Vector3)(float3)chunk.WorldOrigin * config.VoxelSize));
         }
 
-        private ChunkVisual CreateChunkVisual(Chunk chunk)
+        // Reprend une hiérarchie inactive du pool si disponible, sinon en
+        // construit une nouvelle ; dans les deux cas, la repositionne/renomme
+        // pour ce chunk et la réactive.
+        private ChunkVisual AcquireChunkVisual(Chunk chunk)
         {
-            var root = new GameObject($"Chunk ({chunk.Coord.x}, {chunk.Coord.y}, {chunk.Coord.z})");
-            root.transform.SetParent(transform, false);
-            root.transform.localPosition = (float3)chunk.WorldOrigin * config.VoxelSize;
+            ChunkVisual visual = visualPool.Count > 0 ? visualPool.Pop() : CreateChunkVisual();
+
+            visual.Root.name = $"Chunk ({chunk.Coord.x}, {chunk.Coord.y}, {chunk.Coord.z})";
+            visual.Root.transform.localPosition = (float3)chunk.WorldOrigin * config.VoxelSize;
             // Le mesh est généré en unités de voxel (1 = un cube) ; l'échelle du
             // transform le ramène à la vraie taille monde (voir WorldConfig.VoxelSize).
             // S'applique aussi au collider (MeshCollider suit l'échelle du transform).
-            root.transform.localScale = Vector3.one * config.VoxelSize;
+            visual.Root.transform.localScale = Vector3.one * config.VoxelSize;
+            visual.Root.SetActive(true);
+
+            return visual;
+        }
+
+        private ChunkVisual CreateChunkVisual()
+        {
+            var root = new GameObject("Chunk");
+            root.transform.SetParent(transform, false);
 
             var opaqueFilter = root.AddComponent<MeshFilter>();
             root.AddComponent<MeshRenderer>().sharedMaterial = terrainMaterial;
@@ -450,6 +600,24 @@ namespace CubeWorld.World
             foliageObject.SetActive(false);
 
             return new ChunkVisual(root, opaqueFilter, opaqueCollider, waterObject, waterFilter, foliageObject, foliageFilter);
+        }
+
+        // Libère les meshes (propres à ce chunk, non réutilisables — voir
+        // visualPool) et remet la hiérarchie de GameObjects/Components au
+        // pool, désactivée, pour le prochain chunk qui en aura besoin.
+        private void ReleaseChunkVisual(ChunkVisual visual)
+        {
+            ApplyMesh(visual.OpaqueFilter, null);
+            visual.OpaqueCollider.sharedMesh = null;
+
+            ApplyMesh(visual.WaterFilter, null);
+            visual.WaterObject.SetActive(false);
+
+            ApplyMesh(visual.FoliageFilter, null);
+            visual.FoliageObject.SetActive(false);
+
+            visual.Root.SetActive(false);
+            visualPool.Push(visual);
         }
 
         // Remplace le mesh d'un MeshFilter, en détruisant l'ancien (asset runtime).
@@ -492,34 +660,12 @@ namespace CubeWorld.World
 
             if (chunkVisuals.Remove(coord, out ChunkVisual visual))
             {
-                DestroyChunkVisual(visual);
+                ReleaseChunkVisual(visual);
             }
+
+            chunkLodNear.Remove(coord);
 
             EventBus.Publish(new ChunkUnloadedEvent(new Vector3Int(coord.x, coord.y, coord.z)));
-        }
-
-        private void DestroyChunkVisual(ChunkVisual visual)
-        {
-            // Les meshes sont des assets runtime : les détruire explicitement, sinon ils fuient.
-            Mesh opaqueMesh = visual.OpaqueFilter.sharedMesh;
-            if (opaqueMesh != null)
-            {
-                Destroy(opaqueMesh);
-            }
-
-            Mesh waterMesh = visual.WaterFilter.sharedMesh;
-            if (waterMesh != null)
-            {
-                Destroy(waterMesh);
-            }
-
-            Mesh foliageMesh = visual.FoliageFilter.sharedMesh;
-            if (foliageMesh != null)
-            {
-                Destroy(foliageMesh);
-            }
-
-            Destroy(visual.Root);
         }
 
         private static Material CreateDefaultMaterial(string shaderName)

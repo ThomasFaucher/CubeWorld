@@ -56,5 +56,17 @@ namespace CubeWorld.World
                 SwampHumidityThreshold,
                 ForestHumidityThreshold);
         }
+
+        /// <summary>Poids lissés par biome (voir <see cref="BiomeShape.SampleWeights"/>) — pour le relief.</summary>
+        public BiomeWeights SampleWeights(int worldX, int worldZ)
+        {
+            return BiomeShape.SampleWeights(
+                worldX,
+                worldZ,
+                TemperatureSeedOffset,
+                HumiditySeedOffset,
+                NoiseScale,
+                Octaves);
+        }
     }
 }

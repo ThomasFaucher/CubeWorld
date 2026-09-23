@@ -12,7 +12,10 @@ namespace CubeWorld.World
     /// (terrain, matériau opaque) et <paramref name="waterOutput"/> (matériau
     /// transparent), car ils nécessitent des passes de rendu différentes.
     /// Produit aussi <paramref name="foliageOutput"/> (touffes d'herbe, mesh à
-    /// part sans collider — voir <see cref="VegetationConfig"/>).
+    /// part sans collider — voir <see cref="VegetationConfig"/>), sauf si
+    /// <paramref name="includeFoliage"/> est faux (LOD lointain, voir
+    /// <see cref="WorldConfig.LodNearDistance"/>) : le terrain lui-même garde
+    /// toujours le détail complet, seul cet extra est coupé à distance.
     /// </summary>
     public static class ChunkMeshBuilder
     {
@@ -22,7 +25,8 @@ namespace CubeWorld.World
             ChunkMeshData opaqueOutput,
             ChunkMeshData waterOutput,
             ChunkMeshData foliageOutput,
-            VegetationConfig vegetationConfig)
+            VegetationConfig vegetationConfig,
+            bool includeFoliage)
         {
             int3 coord = chunk.Coord;
             BiomeSampleParams biome = world.BiomeParams;
@@ -69,6 +73,7 @@ namespace CubeWorld.World
                 DesertHumidityThreshold = biome.DesertHumidityThreshold,
                 SwampHumidityThreshold = biome.SwampHumidityThreshold,
                 ForestHumidityThreshold = biome.ForestHumidityThreshold,
+                IncludeFoliage = includeFoliage,
             };
 
             JobHandle dependency = JobHandle.CombineDependencies(

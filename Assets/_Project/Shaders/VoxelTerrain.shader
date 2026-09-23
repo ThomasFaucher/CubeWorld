@@ -1,8 +1,16 @@
 // Shader du terrain voxel — style CubeWorld : la couleur vient des couleurs
 // de vertex (aucune texture), éclairage lambert + ombres de la lumière
 // principale. Les normales par face fournissent le flat shading.
+// L'alpha des couleurs de vertex porte l'occlusion ambiante par coin
+// (255 = dégagé, voir ChunkMeshBuildJob / VoxelGridMesher) : les meshes qui
+// écrivent un alpha 255 (nuages, végétation) ne sont pas affectés.
 Shader "CubeWorld/VoxelTerrain"
 {
+    Properties
+    {
+        _AOMin ("AO - luminosité des coins les plus occlus", Range(0, 1)) = 0.5
+    }
+
     SubShader
     {
         Tags
@@ -26,6 +34,11 @@ Shader "CubeWorld/VoxelTerrain"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+
+            // Même CBUFFER dans toutes les passes (compatibilité SRP Batcher).
+            CBUFFER_START(UnityPerMaterial)
+                half _AOMin;
+            CBUFFER_END
 
             struct Attributes
             {
@@ -90,6 +103,10 @@ Shader "CubeWorld/VoxelTerrain"
                 half band = CelBand(ndotl, mainLight.shadowAttenuation, mainLight.distanceAttenuation);
                 half3 lighting = SampleSH(normalWS) + mainLight.color * band;
 
+                // AO par sommet : assombrit coins et pieds de murs, ce qui fait
+                // lire le relief des cubes sans texture (style CubeWorld).
+                lighting *= lerp(_AOMin, 1.0h, input.color.a);
+
                 half3 finalColor = BoostSaturation(input.color.rgb * lighting, 1.35h);
                 return half4(finalColor, 1.0h);
             }
@@ -113,6 +130,11 @@ Shader "CubeWorld/VoxelTerrain"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
+
+            // Même CBUFFER dans toutes les passes (compatibilité SRP Batcher).
+            CBUFFER_START(UnityPerMaterial)
+                half _AOMin;
+            CBUFFER_END
 
             float3 _LightDirection;
 
@@ -167,6 +189,11 @@ Shader "CubeWorld/VoxelTerrain"
             #pragma fragment Frag
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+            // Même CBUFFER dans toutes les passes (compatibilité SRP Batcher).
+            CBUFFER_START(UnityPerMaterial)
+                half _AOMin;
+            CBUFFER_END
 
             struct Attributes
             {

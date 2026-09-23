@@ -24,10 +24,15 @@ namespace CubeWorld.Combat
         [SerializeField]
         private float _attackCooldown = 0.6f;
 
+        [Tooltip("Silhouette voxel affichée dans le dos du joueur quand cette arme est équipée (voir Player.CharacterModel.PlayerGearVisual).")]
+        [SerializeField]
+        private WeaponVisualKind _visualKind = WeaponVisualKind.Sword;
+
         public string DisplayName => _displayName;
         public int Damage => _damage;
         public float Range => _range;
         public float Radius => _radius;
         public float AttackCooldown => _attackCooldown;
+        public WeaponVisualKind VisualKind => _visualKind;
     }
 }

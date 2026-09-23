@@ -66,8 +66,15 @@ namespace CubeWorld.UI
             rootCanvas = canvas;
 
             panel = gameObject.GetComponent<RectTransform>();
-            panel.anchorMin = new Vector2(0f, 1f);
-            panel.anchorMax = new Vector2(0f, 1f);
+            // Ancre au CENTRE du Canvas (comme InventoryDragSession.ghostRoot), pas à un coin :
+            // ScreenPointToLocalPointInRectangle (voir PositionNear) renvoie un point relatif au
+            // pivot du Canvas (son centre par défaut). Ancrer ce panneau à un coin désynchronisait
+            // ce point du référentiel utilisé pour le positionner, collant le tooltip près du
+            // coin haut-gauche de l'écran quasi indépendamment de la souris. Le pivot (0,1) reste
+            // en haut-gauche DU PANNEAU LUI-MÊME, pour qu'il s'étende vers le bas-droite à partir
+            // du point ancré (= près du curseur, voir l'offset (18,-18) dans PositionNear).
+            panel.anchorMin = new Vector2(0.5f, 0.5f);
+            panel.anchorMax = new Vector2(0.5f, 0.5f);
             panel.pivot = new Vector2(0f, 1f);
             panel.sizeDelta = new Vector2(220f, 120f);
 
@@ -137,8 +144,9 @@ namespace CubeWorld.UI
 
         private void PositionNear(Vector2 screen)
         {
+            var canvasRect = rootCanvas.transform as RectTransform;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                rootCanvas.transform as RectTransform,
+                canvasRect,
                 screen,
                 rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay
                     ? null
@@ -146,7 +154,16 @@ namespace CubeWorld.UI
                 out Vector2 local
             );
 
-            panel.anchoredPosition = local + new Vector2(18f, -18f);
+            Vector2 desired = local + new Vector2(18f, -18f);
+
+            // Clamp dans le rect du Canvas pour que le panneau (pivot haut-gauche, s'étend vers
+            // le bas-droite) reste entièrement visible même quand la souris est près d'un bord —
+            // sinon il continuerait à déborder de l'écran côté droit/bas.
+            Vector2 halfCanvas = canvasRect.rect.size * 0.5f;
+            desired.x = Mathf.Clamp(desired.x, -halfCanvas.x, halfCanvas.x - panel.sizeDelta.x);
+            desired.y = Mathf.Clamp(desired.y, -halfCanvas.y + panel.sizeDelta.y, halfCanvas.y);
+
+            panel.anchoredPosition = desired;
         }
 
         private static string BuildText(ItemDefinition item)
@@ -169,6 +186,10 @@ namespace CubeWorld.UI
                 sb.AppendLine($"Défense : {a.Defense}");
                 sb.Append($"PV bonus : {a.BonusMaxHP}");
             }
+            else if (item.Category == ItemCategory.Tool && item.Tool != null)
+            {
+                sb.Append($"Cadence de minage : {item.Tool.MineCooldown:0.##}s");
+            }
             else
             {
                 sb.Append($"Stack max : {item.MaxStackSize}");
@@ -183,6 +204,7 @@ namespace CubeWorld.UI
             {
                 ItemCategory.Weapon => "Arme",
                 ItemCategory.Armor => "Armure",
+                ItemCategory.Tool => "Outil",
                 ItemCategory.Material => "Matériau",
                 _ => category.ToString(),
             };
